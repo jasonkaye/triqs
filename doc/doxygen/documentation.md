@@ -24,7 +24,7 @@ If you are looking for a specific function, class, etc., try using the search ba
 
 ## Operators
 
-## Statistical analysis
+## Statical analysis tools
 
 ## Testing tools
 
