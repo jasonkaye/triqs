@@ -2,7 +2,7 @@ from cpp2py.wrap_generator import *
 
 module = module_(full_name = "triqs.lattice.lattice_tools", doc = "Lattice tools (to be improved)")
 module.add_include("<triqs/lattice/brillouin_zone.hpp>")
-module.add_include("<triqs/lattice/tight_binding.hpp>")
+module.add_include("<triqs/tight_binding/tight_binding.hpp>")
 
 module.add_include("<cpp2py/converters/pair.hpp>")
 module.add_include("<cpp2py/converters/vector.hpp>")
@@ -10,6 +10,7 @@ module.add_include("<cpp2py/converters/map.hpp>")
 module.add_include("<triqs/cpp2py_converters.hpp>")
 
 module.add_using("namespace triqs::lattice")
+module.add_using("namespace triqs::tb")
 module.add_using("namespace triqs::arrays")
 module.add_using("namespace triqs::gfs")
 module.add_using("namespace triqs")
@@ -94,7 +95,7 @@ module.add_class(c)
 # ---------   TightBinding ----------------------------------
 tb = class_(py_type = "TightBinding",
         c_type = "tight_binding",
-        c_type_absolute = "triqs::lattice::tight_binding",
+        c_type_absolute = "triqs::tb::tight_binding",
         is_printable = True,
         hdf5 = True,
         comparisons = "== !=",

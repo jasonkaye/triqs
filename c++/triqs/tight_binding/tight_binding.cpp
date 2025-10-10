@@ -20,9 +20,10 @@
 #include "tight_binding.hpp"
 #include <nda/algorithms.hpp>
 #include <nda/linalg/eigh.hpp>
-#include "grid_generator.hpp"
+#include "../lattice/grid_generator.hpp"
+
 namespace triqs {
-  namespace lattice {
+  namespace tb {
 
     using namespace arrays;
 
@@ -230,5 +231,5 @@ namespace triqs {
       return eval;
     }
 
-  } // namespace lattice
+  } // namespace tb
 } // namespace triqs

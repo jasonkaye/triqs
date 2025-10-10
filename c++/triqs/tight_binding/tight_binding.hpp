@@ -19,7 +19,7 @@
 // Authors: Michel Ferrero, Igor Krivenko, Olivier Parcollet, Nils Wentzell, Thomas Ayral
 
 #pragma once
-#include "brillouin_zone.hpp"
+#include "../lattice/brillouin_zone.hpp"
 #include "../mesh/brzone.hpp"
 #include "../gfs.hpp"
 #include <itertools/itertools.hpp>
@@ -28,7 +28,9 @@
 #include <nda/stdutil/complex.hpp>
 
 namespace triqs {
-  namespace lattice {
+  namespace tb {
+
+    using namespace lattice;
 
     /**
      * For tightbinding Hamiltonian with fully localised orbitals
@@ -229,5 +231,5 @@ namespace triqs {
     std::pair<nda::array<double, 1>, nda::array<double, 2>> dos(tight_binding const &TB, int nkpts, int neps);
     std::pair<nda::array<double, 1>, nda::array<double, 1>> dos_patch(tight_binding const &TB, const nda::array<double, 2> &triangles, int neps,
                                                                       int ndiv);
-  } // namespace lattice
+  } // namespace tb
 } // namespace triqs
