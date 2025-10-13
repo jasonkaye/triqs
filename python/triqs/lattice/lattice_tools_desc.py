@@ -2,7 +2,7 @@ from cpp2py.wrap_generator import *
 
 module = module_(full_name = "triqs.lattice.lattice_tools", doc = "Lattice tools (to be improved)")
 module.add_include("<triqs/lattice/brillouin_zone.hpp>")
-module.add_include("<triqs/tight_binding/tight_binding.hpp>")
+module.add_include("<triqs/tb/tight_binding.hpp>")
 
 module.add_include("<cpp2py/converters/pair.hpp>")
 module.add_include("<cpp2py/converters/vector.hpp>")
