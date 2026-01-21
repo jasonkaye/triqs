@@ -11,6 +11,7 @@ m.add_include("<triqs/gfs/transform/pade.hpp>")
 
 m.add_include("<cpp2py/converters/vector.hpp>")
 m.add_include("<cpp2py/converters/std_array.hpp>")
+m.add_include("<cpp2py/converters/pair.hpp>")
 m.add_include("<triqs/cpp2py_converters.hpp>")
 
 m.add_include("<triqs/gfs/gf/gf_expr.hpp>")
@@ -30,6 +31,7 @@ def all_calls():
         'retime' : ['long', 'double'],
         'legendre' : ['long', 'double'],
         'dlr'    : ['long', 'double', 'matsubara_freq'],
+        'dlr2d'  : ['std::pair<matsubara_freq, matsubara_freq>'],
         'chebyshev' : ['long', 'double'],
         'brzone' : ['std::array<long,3>', 'std::array<double, 3>'],
         'cyclat' : ['std::array<long,3>', 'triqs::lattice::bravais_lattice::point_t']
@@ -43,7 +45,7 @@ def all_calls():
         [ 4, 'tensor_valued<4>', 'array<dcomplex, 4>']
         ]
 
-    meshes = ['imfreq', 'imtime', 'refreq', 'retime', 'legendre', 'dlr', 'chebyshev', 'brzone', 'cyclat']
+    meshes = ['imfreq', 'imtime', 'refreq', 'retime', 'legendre', 'dlr', 'dlr2d', 'chebyshev', 'brzone', 'cyclat']
 
     real_valued = lambda target: target.replace("_", "_real_")
     for rank, target, return_t in target_and_return:
@@ -54,8 +56,9 @@ def all_calls():
             if M1 == 'imtime': yield M1, [return_t]*nxs, rank, real_valued(target), xs
 
             # Product Mesh Wrappings
+            # Skip dlr2d for product meshes (evaluation not yet supported)
             for M2 in meshes:
-                if sum([M1 in ['brzone', 'cyclat'], M2 in ['brzone', 'cyclat']]) == 1:
+                if sum([M1 in ['brzone', 'cyclat'], M2 in ['brzone', 'cyclat']]) == 1 and 'dlr2d' not in [M1, M2]:
                     ys = validargs[M2]
                     nys = len(ys)
                     arg_lst = [(x, y) for x in xs for y in ys] + [('all_t', y) for y in ys] + [(x, 'all_t') for x in xs]
@@ -73,6 +76,7 @@ C_py_transcript = {'imfreq' : 'ImFreq',
                    'retime' : 'ReTime',
                    'legendre' : 'Legendre',
                    'dlr'    : 'DLR',
+                   'dlr2d'  : 'DLR2D',
                    'chebyshev' : 'Chebyshev',
                    'dlr_imtime' : 'DLRImTime',
                    'dlr_imfreq' : 'DLRImFreq',
@@ -155,7 +159,7 @@ for TY in ['double', 'dcomplex'] :
 m.add_function("void _gf_invert_data_in_place(array_view <dcomplex, 3> a)", doc = "Aux function for inversion")
 
 # For legacy Python code : authorize g + Matrix functions, which are defined in legacy_for_python_api.hpp
-for M in ['imfreq', 'imtime', 'refreq', 'retime', 'brzone', 'cyclat', 'legendre', 'dlr', 'chebyshev', 'dlr_imfreq', 'dlr_imtime']:
+for M in ['imfreq', 'imtime', 'refreq', 'retime', 'brzone', 'cyclat', 'legendre', 'dlr', 'dlr2d', 'chebyshev', 'dlr_imfreq', 'dlr_imtime']:
     m.add_function("void _iadd_g_matrix_scalar (gf_view<%s, matrix_valued> x, matrix<std::complex<double>> y)"%M, calling_pattern = "x += y")
     m.add_function("void _iadd_g_matrix_scalar (gf_view<%s, matrix_valued> x, std::complex<double> y)"%M, calling_pattern = "x += y")
 

@@ -335,6 +335,153 @@ m.add_property(name = "dlr_freq",
 module.add_class(m)
 
 ########################
+##   MeshDLR2D
+########################
+
+m = make_mesh(py_type = "MeshDLR2D", c_tag = "dlr2d",
+        doc =  """Mesh of 2D DLR coefficients for three-point functions
+
+        The MeshPoint for a given linear_index `i` can be obtained
+        through `m[i]` and for an index `n` through `m(n)`
+
+        The associated container stores DLR expansion coefficients for
+        two-frequency dependent quantities (three-point functions).
+
+        The associated Green function allows for evaluation on arbitrary
+        Matsubara frequency pairs using G(n1, n2) or G((n1, n2)) syntax.
+
+        Parameters
+        ----------
+        beta : float
+            Inverse temperature
+        w_max: float
+            DLR energy cutoff, same as Lambda / beta
+        eps: float
+            Representation accuracy
+        channel: str
+            Channel: 'PP' (particle-particle) or 'PH' (particle-hole)
+        compressgrid: bool [default = false]
+            Whether to compress the imaginary frequency grid
+        compressbasis: bool [default = true]
+            Whether to compress the real frequency basis
+        """)
+m.add_constructor(signature = "(double beta, double w_max, double eps, channel_enum channel, bool compressgrid = false, bool compressbasis = true)")
+m.add_constructor(signature = "(dlr2d M)")
+m.add_constructor(signature = "(dlr2d_imfreq M)")
+m.add_property(name = "beta",
+               getter = cfunction(calling_pattern="double result = self_c.beta()",
+               signature = "double()",
+               doc = "Inverse temperature"))
+m.add_property(name = "statistic",
+               getter = cfunction(calling_pattern="statistic_enum result = self_c.statistic()",
+               signature = "statistic_enum()"),
+               doc = "Statistic (always fermionic)")
+m.add_property(name = "w_max",
+               getter = cfunction(calling_pattern="double result = self_c.w_max()",
+               signature = "double()",
+               doc = "DLR energy cutoff"))
+m.add_property(name = "eps",
+               getter = cfunction(calling_pattern="double result = self_c.eps()",
+               signature = "double()",
+               doc = "Representation accuracy"))
+m.add_property(name = "compressgrid",
+               getter = cfunction(calling_pattern="bool result = self_c.compressgrid()",
+               signature = "bool()",
+               doc = "Imaginary frequency grid compression flag"))
+m.add_property(name = "compressbasis",
+               getter = cfunction(calling_pattern="bool result = self_c.compressbasis()",
+               signature = "bool()",
+               doc = "Real frequency basis compression flag"))
+m.add_property(name = "rank",
+               getter = cfunction(calling_pattern="long result = self_c.rank()",
+               signature = "long()",
+               doc = "1D DLR rank (number of 1D DLR frequencies)"))
+m.add_property(name = "dlr_rf",
+               getter = cfunction(calling_pattern="nda::vector_const_view<double> result = self_c.dlr_rf()",
+               signature = "nda::vector_const_view<double>()",
+               doc = "Vector of 1D DLR real frequencies"))
+m.add_property(name = "channel",
+               getter = cfunction(calling_pattern="channel_enum result = self_c.channel()",
+               signature = "channel_enum()",
+               doc = "Channel: 'PP' (particle-particle) or 'PH' (particle-hole)"))
+
+module.add_class(m)
+
+########################
+##   MeshDLR2DImFreq
+########################
+
+m = make_mesh(py_type = "MeshDLR2DImFreq", c_tag = "dlr2d_imfreq",
+        doc =  """Mesh of 2D DLR Matsubara frequencies for three-point functions
+
+        The MeshPoint for a given linear_index `i` can be obtained
+        through `m[i]` and for an index `n` through `m(n)`
+
+        The associated container stores function values on a 2D grid
+        of Matsubara frequency pairs.
+
+        The associated Green function does not allow for evaluation on
+        arbitrary Matsubara frequency pairs. For this use the Green function
+        on the associated MeshDLR2D.
+
+        Parameters
+        ----------
+        beta : float
+            Inverse temperature
+        w_max: float
+            DLR energy cutoff, same as Lambda / beta
+        eps: float
+            Representation accuracy
+        channel: str
+            Channel: 'PP' (particle-particle) or 'PH' (particle-hole)
+        compressgrid: bool [default = false]
+            Whether to compress the imaginary frequency grid
+        compressbasis: bool [default = true]
+            Whether to compress the real frequency basis
+        """)
+m.add_constructor(signature = "(double beta, double w_max, double eps, channel_enum channel, bool compressgrid = false, bool compressbasis = true)")
+m.add_constructor(signature = "(dlr2d M)")
+m.add_constructor(signature = "(dlr2d_imfreq M)")
+m.add_property(name = "beta",
+               getter = cfunction(calling_pattern="double result = self_c.beta()",
+               signature = "double()",
+               doc = "Inverse temperature"))
+m.add_property(name = "statistic",
+               getter = cfunction(calling_pattern="statistic_enum result = self_c.statistic()",
+               signature = "statistic_enum()"),
+               doc = "Statistic (always fermionic)")
+m.add_property(name = "w_max",
+               getter = cfunction(calling_pattern="double result = self_c.w_max()",
+               signature = "double()",
+               doc = "DLR energy cutoff"))
+m.add_property(name = "eps",
+               getter = cfunction(calling_pattern="double result = self_c.eps()",
+               signature = "double()",
+               doc = "Representation accuracy"))
+m.add_property(name = "compressgrid",
+               getter = cfunction(calling_pattern="bool result = self_c.compressgrid()",
+               signature = "bool()",
+               doc = "Imaginary frequency grid compression flag"))
+m.add_property(name = "compressbasis",
+               getter = cfunction(calling_pattern="bool result = self_c.compressbasis()",
+               signature = "bool()",
+               doc = "Real frequency basis compression flag"))
+m.add_property(name = "rank",
+               getter = cfunction(calling_pattern="long result = self_c.rank()",
+               signature = "long()",
+               doc = "1D DLR rank (number of 1D DLR frequencies)"))
+m.add_property(name = "dlr_rf",
+               getter = cfunction(calling_pattern="nda::vector_const_view<double> result = self_c.dlr_rf()",
+               signature = "nda::vector_const_view<double>()",
+               doc = "Vector of 1D DLR real frequencies"))
+m.add_property(name = "channel",
+               getter = cfunction(calling_pattern="channel_enum result = self_c.channel()",
+               signature = "channel_enum()",
+               doc = "Channel: 'PP' (particle-particle) or 'PH' (particle-hole)"))
+
+module.add_class(m)
+
+########################
 ##   MeshLegendre
 ########################
 

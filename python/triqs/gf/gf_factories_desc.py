@@ -157,6 +157,13 @@ for Target in  ["scalar_valued", "tensor_valued<1>", "matrix_valued", "tensor_va
         m.add_function(f"{gf_type}<imfreq, {Target}> make_gf_imfreq({gf_view_type}<dlr_imtime, {Target}> g_tau, long n_iw)", doc="""Transform any DLR Green's function to a Matsubara frequency Green's function""")
         m.add_function(f"{gf_type}<imfreq, {Target}> make_gf_imfreq({gf_view_type}<dlr_imfreq, {Target}> g_iw, long n_iw)", doc="""Transform any DLR Green's function to a Matsubara frequency Green's function""")
 
+        # 2D DLR conversions
+        # dlr2d_imfreq -> dlr2d
+        m.add_function(f"{gf_type}<dlr2d, {Target}> make_gf_dlr2d({gf_view_type}<dlr2d_imfreq, {Target}> g_iw)", doc="""Transform a 2D DLR Matsubara Green's function to its 2D DLR coefficient representation""")
+
+        # dlr2d -> dlr2d_imfreq
+        m.add_function(f"{gf_type}<dlr2d_imfreq, {Target}> make_gf_dlr2d_imfreq({gf_view_type}<dlr2d, {Target}> g_dlr2d)", doc="""Transform a 2D DLR coefficient Green's function to its 2D DLR Matsubara frequency representation""")
+
 # Joint Fourier on Product Meshes (lattice + DLR)
 for Target in ["scalar_valued", "matrix_valued"]:
     for Lat, DLR in [('brzone', 'dlr_imfreq'), ('cyclat', 'dlr_imtime')]:
