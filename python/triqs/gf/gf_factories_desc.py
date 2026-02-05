@@ -164,6 +164,9 @@ for Target in  ["scalar_valued", "tensor_valued<1>", "matrix_valued", "tensor_va
         # dlr2d -> dlr2d_imfreq
         m.add_function(f"{gf_type}<dlr2d_imfreq, {Target}> make_gf_dlr2d_imfreq({gf_view_type}<dlr2d, {Target}> g_dlr2d)", doc="""Transform a 2D DLR coefficient Green's function to its 2D DLR Matsubara frequency representation""")
 
+        # dlr2d -> prod<imfreq, imfreq>
+        m.add_function(f"{gf_type}<prod<imfreq, imfreq>, {Target}> make_gf_imfreq({gf_view_type}<dlr2d, {Target}> g_dlr2d, long n_iw = 0)", doc="""Evaluate a 2D DLR coefficient Green's function on a Matsubara frequency product mesh""")
+
 # Joint Fourier on Product Meshes (lattice + DLR)
 for Target in ["scalar_valued", "matrix_valued"]:
     for Lat, DLR in [('brzone', 'dlr_imfreq'), ('cyclat', 'dlr_imtime')]:
