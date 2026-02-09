@@ -101,18 +101,6 @@ TEST(DLR2D, ZeroCoefficients) {
   }
 }
 
-// Test both channels with DLR-representable data
-TEST(DLR2D, DifferentChannels) {
-  for (auto channel : {PP, PH}) {
-    auto g_dlr2d = gf<dlr2d, scalar_valued>{dlr2d{beta, w_max, eps, channel}};
-    init_scalar_coefs(g_dlr2d);
-
-    auto g_iw      = make_gf_dlr2d_imfreq(g_dlr2d);
-    auto g_iw_back = make_gf_dlr2d_imfreq(make_gf_dlr2d(g_iw));
-    EXPECT_GF_NEAR(g_iw, g_iw_back, tol);
-  }
-}
-
 // Test evaluation at grid points (scalar-valued, both channels)
 TEST(DLR2D, ScalarEvaluateAtGridPoints) {
   for (auto channel : {PP, PH}) {

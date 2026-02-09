@@ -203,7 +203,7 @@ namespace triqs::gfs {
       if (n_iw == 0) n_iw = dlr2d_imfreq{m}.max_n() + 1;
 
       // Build target product mesh
-      mesh::imfreq iw_mesh{m.beta(), Fermion, n_iw};
+      mesh::imfreq iw_mesh{m.beta(), m.statistic(), n_iw};
       mesh::prod<mesh::imfreq, mesh::imfreq> prod_mesh{iw_mesh, iw_mesh};
       auto result = gf{prod_mesh, g.target_shape()};
 
