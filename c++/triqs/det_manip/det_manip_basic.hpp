@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <iterator>
 #include <numeric>
+#include <span>
 #include <vector>
 
 namespace triqs::det_manip {
@@ -545,6 +546,187 @@ namespace triqs::det_manip {
 
       public:
       //------------------------------------------------------------------------------------------
+
+      // Helper: flatten an nda::Array to a std::vector in C-order
+      template <nda::Array A> static auto flatten_array(A const &a) {
+        using elem_t = typename std::decay_t<decltype(a)>::value_type;
+        std::vector<elem_t> v(a.size());
+        long flat = 0;
+        nda::for_each(a.shape(), [&](auto... idx) { v[flat++] = a(idx...); });
+        return v;
+      }
+
+      /// Compute independent insertion det-ratios at position (i, j) for paired elements of xs and ys.
+      /// xs and ys must be nda::Array with the same rank and shape. Result has the same shape.
+      /// Read-only: does not modify internal state.
+      template <nda::Array X, nda::Array Y>
+        requires(nda::get_rank<X> == nda::get_rank<Y>)
+      auto insert_ratios(long i, long j, X const &xs, Y const &ys) const -> nda::array<value_type, nda::get_rank<X>> {
+        constexpr int Rk = nda::get_rank<X>;
+        TRIQS_ASSERT(xs.shape() == ys.shape());
+        TRIQS_ASSERT(0 <= i and i <= N);
+        TRIQS_ASSERT(0 <= j and j <= N);
+
+        long K = xs.size();
+        nda::array<value_type, Rk> result(xs.shape());
+        auto xs_flat = flatten_array(xs);
+        auto ys_flat = flatten_array(ys);
+
+        for (long m = 0; m < K; ++m) {
+          matrix_type aug(N + 1, N + 1);
+          for (long r = 0; r < N; ++r)
+            for (long c = 0; c < N; ++c) aug(r < i ? r : r + 1, c < j ? c : c + 1) = mat(r, c);
+          for (long c = 0; c < N; ++c) aug(i, c < j ? c : c + 1) = f(xs_flat[m], y_values[c]);
+          for (long r = 0; r < N; ++r) aug(r < i ? r : r + 1, j) = f(x_values[r], ys_flat[m]);
+          aug(i, j) = f(xs_flat[m], ys_flat[m]);
+
+          range R(0, N + 1);
+          result.data()[m] = nda::linalg::det(aug(R, R)) / det;
+        }
+        return result;
+      }
+
+      /// Compute det-ratios for all combinations of xs and ys at position (i, j).
+      /// Returns array of rank Rx + Ry with shape (Sx..., Sy...). Read-only: does not modify internal state.
+      template <nda::Array X, nda::Array Y>
+      auto insert_ratios_matrix(long i, long j, X const &xs, Y const &ys) const
+          -> nda::array<value_type, nda::get_rank<X> + nda::get_rank<Y>> {
+        constexpr int Rx = nda::get_rank<X>;
+        constexpr int Ry = nda::get_rank<Y>;
+        constexpr int Rk = Rx + Ry;
+        TRIQS_ASSERT(0 <= i and i <= N);
+        TRIQS_ASSERT(0 <= j and j <= N);
+
+        long Kx = xs.size();
+        long Ky = ys.size();
+        auto xs_flat = flatten_array(xs);
+        auto ys_flat = flatten_array(ys);
+
+        std::array<long, Rk> res_shape;
+        auto sx = xs.shape();
+        auto sy = ys.shape();
+        for (int d = 0; d < Rx; ++d) res_shape[d] = sx[d];
+        for (int d = 0; d < Ry; ++d) res_shape[Rx + d] = sy[d];
+
+        nda::array<value_type, Rk> result(res_shape);
+
+        for (long a = 0; a < Kx; ++a) {
+          for (long b = 0; b < Ky; ++b) {
+            matrix_type aug(N + 1, N + 1);
+            for (long r = 0; r < N; ++r)
+              for (long c = 0; c < N; ++c) aug(r < i ? r : r + 1, c < j ? c : c + 1) = mat(r, c);
+            for (long c = 0; c < N; ++c) aug(i, c < j ? c : c + 1) = f(xs_flat[a], y_values[c]);
+            for (long r = 0; r < N; ++r) aug(r < i ? r : r + 1, j) = f(x_values[r], ys_flat[b]);
+            aug(i, j) = f(xs_flat[a], ys_flat[b]);
+
+            range R(0, N + 1);
+            result.data()[a * Ky + b] = nda::linalg::det(aug(R, R)) / det;
+          }
+        }
+        return result;
+      }
+
+      /// Compute independent rank-2 insertion det-ratios at positions (i0, i1, j0, j1).
+      /// Paired args must have equal rank and shape. Lower-rank pairs are broadcast.
+      /// Read-only: does not modify internal state.
+      template <nda::Array X0, nda::Array X1, nda::Array Y0, nda::Array Y1>
+        requires(nda::get_rank<X0> == nda::get_rank<Y0>) && (nda::get_rank<X1> == nda::get_rank<Y1>)
+      auto insert2_ratios(long i0, long i1, long j0, long j1, X0 const &x0s, X1 const &x1s, Y0 const &y0s, Y1 const &y1s) const
+          -> nda::array<value_type, std::max(nda::get_rank<X0>, nda::get_rank<X1>)> {
+        constexpr int R0   = nda::get_rank<X0>;
+        constexpr int R1   = nda::get_rank<X1>;
+        constexpr int Rmax = std::max(R0, R1);
+
+        TRIQS_ASSERT(x0s.shape() == y0s.shape());
+        TRIQS_ASSERT(x1s.shape() == y1s.shape());
+
+        if constexpr (R0 == R1) {
+          // Same rank: all arrays have the same size
+          long K = x0s.size();
+          TRIQS_ASSERT(K == x1s.size());
+          nda::array<value_type, Rmax> result(x0s.shape());
+          auto fx0 = flatten_array(x0s);
+          auto fx1 = flatten_array(x1s);
+          auto fy0 = flatten_array(y0s);
+          auto fy1 = flatten_array(y1s);
+
+          for (long m = 0; m < K; ++m) {
+            result.data()[m] = compute_insert2_ratio(i0, i1, j0, j1, fx0[m], fx1[m], fy0[m], fy1[m]);
+          }
+          return result;
+        } else if constexpr (R0 > R1) {
+          // Pair 0 is higher rank. Broadcast pair 1 along extra leading dims.
+          auto shape0 = x0s.shape();
+          long Nc = x1s.size();
+          long M  = x0s.size() / Nc;
+          TRIQS_ASSERT(x0s.size() % Nc == 0);
+
+          nda::array<value_type, R0> result(shape0);
+          auto fx0 = flatten_array(x0s);
+          auto fx1 = flatten_array(x1s);
+          auto fy0 = flatten_array(y0s);
+          auto fy1 = flatten_array(y1s);
+
+          for (long m = 0; m < M; ++m)
+            for (long n = 0; n < Nc; ++n) {
+              long mn = m * Nc + n;
+              result.data()[mn] = compute_insert2_ratio(i0, i1, j0, j1, fx0[mn], fx1[n], fy0[mn], fy1[n]);
+            }
+          return result;
+        } else {
+          // R0 < R1: swap pairs and recurse
+          return insert2_ratios(i1, i0, j1, j0, x1s, x0s, y1s, y0s);
+        }
+      }
+
+      private:
+      // Helper: compute a single rank-2 insertion det-ratio by building augmented matrix
+      auto compute_insert2_ratio(long i0, long i1, long j0, long j1,
+                                  x_type const &x0, x_type const &x1, y_type const &y0, y_type const &y1) const -> value_type {
+        long ii0 = std::min(i0, i1), ii1 = std::max(i0, i1);
+        long jj0 = std::min(j0, j1), jj1 = std::max(j0, j1);
+        auto const &xf = (i0 < i1) ? x0 : x1;
+        auto const &xs = (i0 < i1) ? x1 : x0;
+        auto const &yf = (j0 < j1) ? y0 : y1;
+        auto const &ys = (j0 < j1) ? y1 : y0;
+
+        long ii1_adj = ii1 - 1;
+        long jj1_adj = jj1 - 1;
+
+        matrix_type aug(N + 2, N + 2);
+
+        auto row_map = [&](long r) -> long {
+          if (r < ii0) return r;
+          if (r < ii1_adj) return r + 1;
+          return r + 2;
+        };
+        auto col_map = [&](long c) -> long {
+          if (c < jj0) return c;
+          if (c < jj1_adj) return c + 1;
+          return c + 2;
+        };
+
+        for (long r = 0; r < N; ++r)
+          for (long c = 0; c < N; ++c) aug(row_map(r), col_map(c)) = mat(r, c);
+        for (long c = 0; c < N; ++c) {
+          aug(ii0, col_map(c))         = f(xf, y_values[c]);
+          aug(ii1_adj + 1, col_map(c)) = f(xs, y_values[c]);
+        }
+        for (long r = 0; r < N; ++r) {
+          aug(row_map(r), jj0)         = f(x_values[r], yf);
+          aug(row_map(r), jj1_adj + 1) = f(x_values[r], ys);
+        }
+        aug(ii0, jj0)                 = f(xf, yf);
+        aug(ii0, jj1_adj + 1)         = f(xf, ys);
+        aug(ii1_adj + 1, jj0)         = f(xs, yf);
+        aug(ii1_adj + 1, jj1_adj + 1) = f(xs, ys);
+
+        range R(0, N + 2);
+        return nda::linalg::det(aug(R, R)) / det;
+      }
+
+      //------------------------------------------------------------------------------------------
+      public:
 
       /**
      * Insert k rows and columns at positions given by vectors i and j.
