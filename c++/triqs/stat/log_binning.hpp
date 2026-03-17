@@ -197,7 +197,7 @@ namespace triqs::stat {
       // accumulate to bins with larger block sizes
       if (max_n_bins_ != 1) {
         // add a new bin if the total count is a power of 2 and we have not reached the maximum number of bins
-        if (count_ == (1 << bare_bins_.size()) && (max_n_bins_ < 0 || n_bins() < max_n_bins_)) {
+        if (count_ == (1L << bare_bins_.size()) && (max_n_bins_ < 0 || n_bins() < max_n_bins_)) {
           // add new mean and variance bins with bin size 2^n_bins()
           mean_bins_.emplace_back(zeroed_sample(mean_bins_[0]));
           var_bins_.emplace_back(zeroed_sample(var_bins_[0]));
