@@ -449,7 +449,6 @@ namespace triqs::stat {
       return std::make_pair(err, tau);
     }
 
-    private:
     long max_n_bins_{0};
     long bin_capacity_{-1};
     long last_bin_count_{0};
