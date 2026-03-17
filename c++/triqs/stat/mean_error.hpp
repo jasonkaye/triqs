@@ -266,7 +266,7 @@ namespace triqs::stat {
    *
    * @details The integrated autocorrelation time is estimated as
    * \f[
-   *   \tau = \frac{1}{2} \left( \frac{s^2_n}{s^2_0} - 1 \right)^2 \; ,
+   *   \tau = \frac{1}{2} \left( \frac{s^2_n}{s^2_0} - 1 \right) \; ,
    * \f]
    * where \f$ s^2_n \f$ is the variance of the mean with binning and \f$ s_0 \f$ is the variance of the mean without
    * binning.
