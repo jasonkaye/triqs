@@ -232,6 +232,9 @@ namespace triqs::mesh {
     /// Get the inverse temperature \f$ \beta \f$.
     [[nodiscard]] double beta() const noexcept { return beta_; }
 
+    /// Get the precomputed \f$ 2 / \beta \f$ for fast tau -> [-1, 1] mapping.
+    [[nodiscard]] double inv_beta_x2() const noexcept { return inv_beta_x2_; }
+
     /// Get the particle statistics.
     [[nodiscard]] statistic_enum statistic() const noexcept { return stat_; }
 
@@ -328,6 +331,7 @@ namespace triqs::mesh {
     private:
     // Initialize precomputed arrays from beta_ and N_
     void init_arrays() {
+      inv_beta_x2_     = 2.0 / beta_;
       points_standard_ = utility::chebyshev_points(N_);
       weights_         = utility::chebyshev_barycentric_weights(N_);
       points_scaled_   = nda::vector<double>(N_);
@@ -335,6 +339,7 @@ namespace triqs::mesh {
     }
 
     double beta_         = 1.0;
+    double inv_beta_x2_  = 2.0; // precomputed 2.0 / beta_ for fast tau -> [-1, 1] mapping
     statistic_enum stat_ = Fermion;
     long N_              = 0;
     uint64_t mesh_hash_  = 0;
@@ -467,7 +472,7 @@ namespace triqs::mesh {
   inline auto evaluate(chebyshev const &m, auto const &f, double tau) {
     EXPECTS(m.size() > 0 and tau >= 0 and tau <= m.beta());
 
-    double x            = utility::to_standard_interval(tau, 0.0, m.beta());
+    double x            = tau * m.inv_beta_x2() - 1.0;
     auto const &points  = m.points_standard();
     auto const &weights = m.weights();
     long N              = m.size();
