@@ -725,6 +725,36 @@ namespace triqs::det_manip {
         return nda::linalg::det(aug(R, R)) / det;
       }
 
+      // Helper: compute a single rank-k insertion det-ratio by building (N+k)x(N+k) augmented matrix.
+      // Inserts k rows at positions 0..k-1 and k columns at positions 0..k-1.
+      // Read-only: does not modify internal state.
+      public:
+      auto compute_insertk_ratio(std::span<const x_type> xs, std::span<const y_type> ys) const -> value_type {
+        long k = static_cast<long>(xs.size());
+        TRIQS_ASSERT(k == static_cast<long>(ys.size()));
+        TRIQS_ASSERT(k > 0);
+
+        long Nk = N + k;
+        matrix_type aug(Nk, Nk);
+
+        // Existing elements shifted to positions k..N+k-1
+        for (long r = 0; r < N; ++r)
+          for (long c = 0; c < N; ++c) aug(r + k, c + k) = mat(r, c);
+
+        // New rows (0..k-1): f(xs[l], y_values[c]) for existing cols, f(xs[l], ys[m]) for new cols
+        for (long l = 0; l < k; ++l) {
+          for (long c = 0; c < N; ++c) aug(l, c + k) = f(xs[l], y_values[c]);
+          for (long m = 0; m < k; ++m) aug(l, m) = f(xs[l], ys[m]);
+        }
+
+        // New columns (0..k-1) for existing rows
+        for (long m = 0; m < k; ++m)
+          for (long r = 0; r < N; ++r) aug(r + k, m) = f(x_values[r], ys[m]);
+
+        range R(0, Nk);
+        return nda::linalg::det(aug(R, R)) / det;
+      }
+
       //------------------------------------------------------------------------------------------
       public:
 
