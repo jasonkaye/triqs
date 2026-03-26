@@ -755,6 +755,25 @@ namespace triqs::det_manip {
         return nda::linalg::det(aug(R, R)) / det;
       }
 
+      /// Compute K independent rank-k insertion det-ratios.
+      /// Reference implementation: loops over candidates calling compute_insertk_ratio.
+      nda::array<value_type, 1> insertk_ratios(nda::matrix_const_view<x_type> xs, nda::matrix_const_view<y_type> ys) const {
+        TRIQS_ASSERT(xs.shape() == ys.shape());
+        long K = xs.extent(0);
+        long k = xs.extent(1);
+        nda::array<value_type, 1> result(K);
+        for (long m = 0; m < K; ++m) {
+          std::vector<x_type> xm(k);
+          std::vector<y_type> ym(k);
+          for (long j = 0; j < k; ++j) {
+            xm[j] = xs(m, j);
+            ym[j] = ys(m, j);
+          }
+          result(m) = compute_insertk_ratio(xm, ym);
+        }
+        return result;
+      }
+
       //------------------------------------------------------------------------------------------
       public:
 

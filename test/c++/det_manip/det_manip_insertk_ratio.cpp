@@ -43,7 +43,8 @@ template <typename T1, typename T2> void assert_close(T1 const &A, T2 const &B, 
   double diff  = std::abs(A - B);
   double scale = std::max(std::abs(double(A)), std::abs(double(B)));
   if (diff > precision * std::max(scale, 1.0))
-    TRIQS_RUNTIME_ERROR << "assert_close error: " << A << " vs " << B << " diff=" << diff << " reldiff=" << diff / std::max(scale, 1e-30) << " " << msg;
+    TRIQS_RUNTIME_ERROR << "assert_close error: " << A << " vs " << B << " diff=" << diff << " reldiff=" << diff / std::max(scale, 1e-30) << " "
+                        << msg;
 }
 
 template <typename DM> void build_det(DM &D, int target_size, triqs::mc_tools::random_generator &RNG) {
@@ -123,8 +124,8 @@ void test_k1_vs_try_insert() {
     std::vector<double> xs = {RNG(10.0)};
     std::vector<double> ys = {RNG(10.0)};
 
-    auto ratio_k  = D.compute_insertk_ratio(xs, ys);
-    auto ratio_1  = D.try_insert(0, 0, xs[0], ys[0]);
+    auto ratio_k = D.compute_insertk_ratio(xs, ys);
+    auto ratio_1 = D.try_insert(0, 0, xs[0], ys[0]);
     D.reject_last_try();
 
     assert_close(ratio_k, ratio_1, PRECISION, "k1 trial=" + std::to_string(trial));
@@ -355,8 +356,254 @@ void test_basic_state_unchanged() {
   std::cerr << "PASSED" << std::endl;
 }
 
+// Helper: build (K, k) matrix of random values
+nda::matrix<double> random_matrix(long K, long k, triqs::mc_tools::random_generator &RNG, double range = 10.0) {
+  nda::matrix<double> m(K, k);
+  for (long i = 0; i < K; ++i)
+    for (long j = 0; j < k; ++j) m(i, j) = RNG(range);
+  return m;
+}
+
+// ============ Batched insertk_ratios tests ============
+
+// Batched result must match sequential compute_insertk_ratio for each candidate
+void test_insertk_ratios_vs_sequential() {
+  std::cerr << "=== test_insertk_ratios_vs_sequential ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 12001);
+  build_det(D, 15, RNG);
+
+  for (int k = 1; k <= 6; ++k) {
+    long K  = 20;
+    auto xs = random_matrix(K, k, RNG);
+    auto ys = random_matrix(K, k, RNG);
+
+    auto batch = D.insertk_ratios(xs, ys);
+
+    for (long m = 0; m < K; ++m) {
+      std::vector<double> xm(k), ym(k);
+      for (long j = 0; j < k; ++j) {
+        xm[j] = xs(m, j);
+        ym[j] = ys(m, j);
+      }
+      auto ref = D.compute_insertk_ratio(xm, ym);
+      assert_close(batch(m), ref, 1.e-6, "vs_sequential k=" + std::to_string(k) + " m=" + std::to_string(m));
+    }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// Batched k=1 matches try_insert, k=2 matches try_insert2, k>=3 matches try_insert_k
+void test_insertk_ratios_vs_try() {
+  std::cerr << "=== test_insertk_ratios_vs_try ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 12002);
+  build_det(D, 15, RNG);
+
+  for (int k = 1; k <= 5; ++k) {
+    long K  = 15;
+    auto xs = random_matrix(K, k, RNG);
+    auto ys = random_matrix(K, k, RNG);
+
+    auto batch = D.insertk_ratios(xs, ys);
+
+    for (long m = 0; m < K; ++m) {
+      std::vector<double> xm(k), ym(k);
+      for (long j = 0; j < k; ++j) {
+        xm[j] = xs(m, j);
+        ym[j] = ys(m, j);
+      }
+      auto ref = insertk_ratio_via_try(D, xm, ym);
+      assert_close(batch(m), ref, 1.e-6, "vs_try k=" + std::to_string(k) + " m=" + std::to_string(m));
+    }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// N=0: empty matrix
+void test_insertk_ratios_empty_matrix() {
+  std::cerr << "=== test_insertk_ratios_empty_matrix ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 12003);
+
+  for (int k = 1; k <= 4; ++k) {
+    long K  = 10;
+    auto xs = random_matrix(K, k, RNG);
+    auto ys = random_matrix(K, k, RNG);
+
+    auto batch = D.insertk_ratios(xs, ys);
+
+    for (long m = 0; m < K; ++m) {
+      std::vector<double> xm(k), ym(k);
+      for (long j = 0; j < k; ++j) {
+        xm[j] = xs(m, j);
+        ym[j] = ys(m, j);
+      }
+      auto ref = D.compute_insertk_ratio(xm, ym);
+      assert_close(batch(m), ref, 1.e-14, "empty k=" + std::to_string(k) + " m=" + std::to_string(m));
+    }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// State must not change
+void test_insertk_ratios_state_unchanged() {
+  std::cerr << "=== test_insertk_ratios_state_unchanged ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 12004);
+  build_det(D, 15, RNG);
+
+  auto det_before  = D.determinant();
+  auto inv_before  = D.inverse_matrix();
+  auto size_before = D.size();
+
+  for (int k = 1; k <= 4; ++k) {
+    auto xs = random_matrix(10, k, RNG);
+    auto ys = random_matrix(10, k, RNG);
+    D.insertk_ratios(xs, ys);
+  }
+
+  if (D.size() != size_before) TRIQS_RUNTIME_ERROR << "Size changed!";
+  assert_close(D.determinant(), det_before, 1.e-14, "det changed");
+  auto inv_after = D.inverse_matrix();
+  for (int i = 0; i < size_before; ++i)
+    for (int j = 0; j < size_before; ++j) assert_close(inv_after(i, j), inv_before(i, j), 1.e-14, "inv changed");
+  std::cerr << "PASSED" << std::endl;
+}
+
+// Various matrix sizes
+void test_insertk_ratios_various_sizes() {
+  std::cerr << "=== test_insertk_ratios_various_sizes ===" << std::endl;
+  fun f;
+
+  for (int N : {1, 2, 5, 10, 30}) {
+    triqs::det_manip::det_manip<fun> D(f, 100);
+    triqs::mc_tools::random_generator RNG("mt19937", 12005 + N);
+    build_det(D, N, RNG);
+
+    for (int k = 1; k <= 4; ++k) {
+      long K  = 10;
+      auto xs = random_matrix(K, k, RNG);
+      auto ys = random_matrix(K, k, RNG);
+
+      auto batch = D.insertk_ratios(xs, ys);
+      for (long m = 0; m < K; ++m) {
+        std::vector<double> xm(k), ym(k);
+        for (long j = 0; j < k; ++j) {
+          xm[j] = xs(m, j);
+          ym[j] = ys(m, j);
+        }
+        auto ref = D.compute_insertk_ratio(xm, ym);
+        assert_close(batch(m), ref, 1.e-6, "N=" + std::to_string(N) + " k=" + std::to_string(k) + " m=" + std::to_string(m));
+      }
+    }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// Cross-validate det_manip vs det_manip_basic
+void test_insertk_ratios_cross_validate() {
+  std::cerr << "=== test_insertk_ratios_cross_validate ===" << std::endl;
+  fun f;
+
+  for (int N : {3, 5, 8}) {
+    triqs::det_manip::det_manip<fun> D(f, 100);
+    triqs::det_manip::det_manip_basic<fun> Db(f, 100);
+    triqs::mc_tools::random_generator RNG("mt19937", 12006 + N);
+
+    for (int n = 0; n < N; ++n) {
+      double x = RNG(10.0);
+      double y = RNG(10.0);
+      D.insert(D.size(), D.size(), x, y);
+      Db.insert(Db.size(), Db.size(), x, y);
+    }
+    D.regenerate();
+
+    for (int k = 1; k <= 4; ++k) {
+      long K  = 10;
+      auto xs = random_matrix(K, k, RNG);
+      auto ys = random_matrix(K, k, RNG);
+
+      auto batch_opt   = D.insertk_ratios(xs, ys);
+      auto batch_basic = Db.insertk_ratios(xs, ys);
+
+      for (long m = 0; m < K; ++m)
+        assert_close(batch_opt(m), batch_basic(m), 1.e-2, "cross N=" + std::to_string(N) + " k=" + std::to_string(k) + " m=" + std::to_string(m));
+    }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// K=1: single candidate
+void test_insertk_ratios_single_candidate() {
+  std::cerr << "=== test_insertk_ratios_single_candidate ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 12007);
+  build_det(D, 10, RNG);
+
+  for (int k = 1; k <= 4; ++k) {
+    auto xs    = random_matrix(1, k, RNG);
+    auto ys    = random_matrix(1, k, RNG);
+    auto batch = D.insertk_ratios(xs, ys);
+    std::vector<double> xm(k), ym(k);
+    for (long j = 0; j < k; ++j) {
+      xm[j] = xs(0, j);
+      ym[j] = ys(0, j);
+    }
+    auto ref = D.compute_insertk_ratio(xm, ym);
+    assert_close(batch(0), ref, 1.e-10, "single k=" + std::to_string(k));
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// K=0: empty batch
+void test_insertk_ratios_empty_batch() {
+  std::cerr << "=== test_insertk_ratios_empty_batch ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 12008);
+  build_det(D, 10, RNG);
+
+  nda::matrix<double> xs(0, 3), ys(0, 3);
+  auto batch = D.insertk_ratios(xs, ys);
+  if (batch.size() != 0) TRIQS_RUNTIME_ERROR << "Expected empty result";
+  std::cerr << "PASSED" << std::endl;
+}
+
+// det_manip_basic: batch matches sequential
+void test_basic_insertk_ratios_vs_sequential() {
+  std::cerr << "=== test_basic_insertk_ratios_vs_sequential ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip_basic<fun> Db(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 12009);
+  build_det(Db, 15, RNG);
+
+  for (int k = 1; k <= 4; ++k) {
+    long K  = 10;
+    auto xs = random_matrix(K, k, RNG);
+    auto ys = random_matrix(K, k, RNG);
+
+    auto batch = Db.insertk_ratios(xs, ys);
+    for (long m = 0; m < K; ++m) {
+      std::vector<double> xm(k), ym(k);
+      for (long j = 0; j < k; ++j) {
+        xm[j] = xs(m, j);
+        ym[j] = ys(m, j);
+      }
+      auto ref = Db.compute_insertk_ratio(xm, ym);
+      assert_close(batch(m), ref, 1.e-14, "basic k=" + std::to_string(k) + " m=" + std::to_string(m));
+    }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
 int main() {
-  // det_manip tests
+  // det_manip: compute_insertk_ratio tests
   test_k1_vs_try_insert();
   test_k2_vs_try_insert2();
   test_general_k_vs_try_insert_k();
@@ -364,14 +611,25 @@ int main() {
   test_state_unchanged();
   test_various_sizes();
 
-  // Cross-validation
+  // Cross-validation (compute_insertk_ratio)
   test_cross_validate();
   test_cross_validate_empty();
 
-  // det_manip_basic tests
+  // det_manip_basic: compute_insertk_ratio tests
   test_basic_k1_vs_try_insert();
   test_basic_general_k_vs_reference();
   test_basic_state_unchanged();
+
+  // Batched insertk_ratios tests
+  test_insertk_ratios_vs_sequential();
+  test_insertk_ratios_vs_try();
+  test_insertk_ratios_empty_matrix();
+  test_insertk_ratios_state_unchanged();
+  test_insertk_ratios_various_sizes();
+  test_insertk_ratios_cross_validate();
+  test_insertk_ratios_single_candidate();
+  test_insertk_ratios_empty_batch();
+  test_basic_insertk_ratios_vs_sequential();
 
   std::cerr << "\nAll tests PASSED." << std::endl;
   return 0;

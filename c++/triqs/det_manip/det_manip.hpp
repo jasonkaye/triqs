@@ -989,6 +989,74 @@ namespace triqs::det_manip {
       return nda::linalg::det(ksi(Rk, Rk));
     }
 
+    /// Compute K independent rank-k insertion det-ratios in a single batched call.
+    /// xs: (K, k) matrix -- row m gives the k x-values for candidate m.
+    /// ys: (K, k) matrix -- row m gives the k y-values for candidate m.
+    /// Returns array of K raw Schur complement determinants (no position-dependent sign).
+    /// Read-only: does not modify internal state.
+    nda::array<value_type, 1> insertk_ratios(nda::matrix_const_view<x_type> xs, nda::matrix_const_view<y_type> ys) const {
+      TRIQS_ASSERT(xs.shape() == ys.shape());
+      long K = xs.extent(0);
+      long k = xs.extent(1);
+
+      nda::array<value_type, 1> result(K);
+      if (K == 0) return result;
+      TRIQS_ASSERT(k > 0);
+
+      // Helper: inline determinant for small k x k matrices
+      auto small_det = [](nda::matrix<value_type> const &m, long k) -> value_type {
+        if (k == 1) return m(0, 0);
+        if (k == 2) return m(0, 0) * m(1, 1) - m(0, 1) * m(1, 0);
+        if (k == 3)
+          return m(0, 0) * m(1, 1) * m(2, 2) + m(0, 1) * m(1, 2) * m(2, 0) + m(0, 2) * m(1, 0) * m(2, 1) - m(2, 0) * m(1, 1) * m(0, 2)
+             - m(2, 1) * m(1, 2) * m(0, 0) - m(2, 2) * m(1, 0) * m(0, 1);
+        auto Rk = range(k);
+        return nda::linalg::det(m(Rk, Rk));
+      };
+
+      if (N == 0) {
+        nda::matrix<value_type> ksi(k, k);
+        for (long m = 0; m < K; ++m) {
+          for (long i = 0; i < k; ++i)
+            for (long j = 0; j < k; ++j) ksi(i, j) = f(xs(m, i), ys(m, j));
+          result(m) = small_det(ksi, k);
+        }
+        return result;
+      }
+
+      range RN(N);
+
+      // Build B_all(N, K*k): columns [m*k, (m+1)*k) belong to candidate m
+      nda::matrix<value_type> B_all(N, K * k), MB_all(N, K * k);
+      for (long n = 0; n < N; ++n)
+        for (long m = 0; m < K; ++m)
+          for (long j = 0; j < k; ++j) B_all(n, m * k + j) = f(x_values[n], ys(m, j));
+
+      // Shared GEMM: MB_all = mat_inv * B_all
+      blas::gemm(1.0, mat_inv(RN, RN), B_all, 0.0, MB_all);
+
+      // Per-candidate: build ksi, subtract C_m * MB_m, take det
+      nda::matrix<value_type> ksi(k, k), C_m(k, N);
+      for (long m = 0; m < K; ++m) {
+        // Direct term
+        for (long i = 0; i < k; ++i)
+          for (long j = 0; j < k; ++j) ksi(i, j) = f(xs(m, i), ys(m, j));
+
+        // C_m(i, n) = f(xs(m, i), y_values[n])
+        for (long i = 0; i < k; ++i)
+          for (long n = 0; n < N; ++n) C_m(i, n) = f(xs(m, i), y_values[n]);
+
+        // ksi -= C_m * MB_m where MB_m = MB_all(:, m*k:(m+1)*k)
+        range Rk(k);
+        auto MB_m = MB_all(RN, range(m * k, (m + 1) * k));
+        blas::gemm(-1.0, C_m(Rk, RN), MB_m, 1.0, ksi(Rk, Rk));
+
+        result(m) = small_det(ksi, k);
+      }
+
+      return result;
+    }
+
     //------------------------------------------------------------------------------------------
     private:
     void complete_insert_k() {

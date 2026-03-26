@@ -168,3 +168,63 @@ static void BM_insert_ratios_matrix_batch(benchmark::State &state) {
 
 BENCHMARK(BM_insert_ratios_matrix_loop)->Arg(16)->Arg(64)->Arg(128)->Arg(256)->Arg(512);
 BENCHMARK(BM_insert_ratios_matrix_batch)->Arg(16)->Arg(64)->Arg(128)->Arg(256)->Arg(512);
+
+// ============ Rank-k benchmarks ============
+
+static void BM_insertk_ratios_loop(benchmark::State &state) {
+  long N = state.range(0);
+  long k = state.range(1);
+  auto D = make_det(N);
+  // Build K candidate sets of k values each
+  std::vector<std::vector<double>> xs(K), ys(K);
+  for (long m = 0; m < K; ++m) {
+    xs[m].resize(k);
+    ys[m].resize(k);
+    for (long j = 0; j < k; ++j) {
+      xs[m][j] = 0.5 + 0.1 * m + 0.01 * j;
+      ys[m][j] = 0.3 + 0.1 * m + 0.01 * j;
+    }
+  }
+  for (auto _ : state) {
+    double sum = 0;
+    for (long m = 0; m < K; ++m) sum += D.compute_insertk_ratio(xs[m], ys[m]);
+    benchmark::DoNotOptimize(sum);
+  }
+}
+
+static void BM_insertk_ratios_batch(benchmark::State &state) {
+  long N = state.range(0);
+  long k = state.range(1);
+  auto D = make_det(N);
+  nda::matrix<double> xs(K, k), ys(K, k);
+  for (long m = 0; m < K; ++m)
+    for (long j = 0; j < k; ++j) {
+      xs(m, j) = 0.5 + 0.1 * m + 0.01 * j;
+      ys(m, j) = 0.3 + 0.1 * m + 0.01 * j;
+    }
+  for (auto _ : state) {
+    auto result = D.insertk_ratios(xs, ys);
+    benchmark::DoNotOptimize(result);
+  }
+}
+
+BENCHMARK(BM_insertk_ratios_loop)
+   ->Args({64, 2})
+   ->Args({64, 3})
+   ->Args({64, 4})
+   ->Args({128, 2})
+   ->Args({128, 3})
+   ->Args({128, 4})
+   ->Args({256, 2})
+   ->Args({256, 3})
+   ->Args({256, 4});
+BENCHMARK(BM_insertk_ratios_batch)
+   ->Args({64, 2})
+   ->Args({64, 3})
+   ->Args({64, 4})
+   ->Args({128, 2})
+   ->Args({128, 3})
+   ->Args({128, 4})
+   ->Args({256, 2})
+   ->Args({256, 3})
+   ->Args({256, 4});
