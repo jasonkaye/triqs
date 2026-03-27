@@ -952,43 +952,6 @@ namespace triqs::det_manip {
       }
     }
 
-    /// Compute a single rank-k insertion det-ratio via Schur complement.
-    /// xs: k x_type values (rows to insert), ys: k y_type values (cols to insert).
-    /// Returns det(ksi) where ksi(i,j) = f(xs[i], ys[j]) - C_i * M^{-1} * B_j.
-    /// Read-only: does not modify internal state.
-    value_type compute_insertk_ratio(std::span<const x_type> xs, std::span<const y_type> ys) const {
-      long k = static_cast<long>(xs.size());
-      TRIQS_ASSERT(k == static_cast<long>(ys.size()));
-      TRIQS_ASSERT(k > 0);
-
-      // Build k x k direct matrix
-      nda::matrix<value_type> ksi(k, k);
-      for (long m = 0; m < k; ++m)
-        for (long n = 0; n < k; ++n) ksi(m, n) = f(xs[m], ys[n]);
-
-      if (N == 0) {
-        auto Rk = range(k);
-        return nda::linalg::det(ksi(Rk, Rk));
-      }
-
-      range RN(N);
-      range Rk(k);
-
-      // Build B(N,k) and C(k,N)
-      nda::matrix<value_type> B(N, k), C(k, N), MB(N, k);
-      for (long l = 0; l < N; ++l)
-        for (long m = 0; m < k; ++m) B(l, m) = f(x_values[l], ys[m]);
-      for (long m = 0; m < k; ++m)
-        for (long l = 0; l < N; ++l) C(m, l) = f(xs[m], y_values[l]);
-
-      // MB = mat_inv * B
-      blas::gemm(1.0, mat_inv(RN, RN), B, 0.0, MB);
-      // ksi -= C * MB
-      blas::gemm(-1.0, C(Rk, RN), MB(RN, Rk), 1.0, ksi(Rk, Rk));
-
-      return nda::linalg::det(ksi(Rk, Rk));
-    }
-
     /// Compute batched rank-k insertion det-ratios via shared GEMM.
     /// xs and ys: rank-2 arrays (K, k) or rank-3 arrays (M, K, k).
     /// When ranks differ, the rank-2 input is broadcast along the extra leading dimension.

@@ -725,38 +725,9 @@ namespace triqs::det_manip {
         return nda::linalg::det(aug(R, R)) / det;
       }
 
-      // Helper: compute a single rank-k insertion det-ratio by building (N+k)x(N+k) augmented matrix.
-      // Inserts k rows at positions 0..k-1 and k columns at positions 0..k-1.
-      // Read-only: does not modify internal state.
-      public:
-      auto compute_insertk_ratio(std::span<const x_type> xs, std::span<const y_type> ys) const -> value_type {
-        long k = static_cast<long>(xs.size());
-        TRIQS_ASSERT(k == static_cast<long>(ys.size()));
-        TRIQS_ASSERT(k > 0);
-
-        long Nk = N + k;
-        matrix_type aug(Nk, Nk);
-
-        // Existing elements shifted to positions k..N+k-1
-        for (long r = 0; r < N; ++r)
-          for (long c = 0; c < N; ++c) aug(r + k, c + k) = mat(r, c);
-
-        // New rows (0..k-1): f(xs[l], y_values[c]) for existing cols, f(xs[l], ys[m]) for new cols
-        for (long l = 0; l < k; ++l) {
-          for (long c = 0; c < N; ++c) aug(l, c + k) = f(xs[l], y_values[c]);
-          for (long m = 0; m < k; ++m) aug(l, m) = f(xs[l], ys[m]);
-        }
-
-        // New columns (0..k-1) for existing rows
-        for (long m = 0; m < k; ++m)
-          for (long r = 0; r < N; ++r) aug(r + k, m) = f(x_values[r], ys[m]);
-
-        range R(0, Nk);
-        return nda::linalg::det(aug(R, R)) / det;
-      }
-
       /// Compute batched rank-k insertion det-ratios. Reference implementation.
       /// Supports broadcasting: one of xs, ys may have an extra leading dimension.
+      public:
       template <nda::Array X, nda::Array Y>
         requires(nda::get_rank<X> >= 2 && nda::get_rank<X> <= 3 && nda::get_rank<Y> >= 2 && nda::get_rank<Y> <= 3
                  && nda::get_rank<X> + nda::get_rank<Y> <= 5)
@@ -764,6 +735,23 @@ namespace triqs::det_manip {
         constexpr int Rx   = nda::get_rank<X>;
         constexpr int Ry   = nda::get_rank<Y>;
         constexpr int Rout = std::max(Rx, Ry) - 1;
+
+        // Augmented-matrix det-ratio for a single (xs_span, ys_span) pair
+        auto single_ratio = [&](std::span<const x_type> xs_s, std::span<const y_type> ys_s) -> value_type {
+          long kk = static_cast<long>(xs_s.size());
+          long Nk = N + kk;
+          matrix_type aug(Nk, Nk);
+          for (long r = 0; r < N; ++r)
+            for (long c = 0; c < N; ++c) aug(r + kk, c + kk) = mat(r, c);
+          for (long l = 0; l < kk; ++l) {
+            for (long c = 0; c < N; ++c) aug(l, c + kk) = f(xs_s[l], y_values[c]);
+            for (long m = 0; m < kk; ++m) aug(l, m) = f(xs_s[l], ys_s[m]);
+          }
+          for (long m = 0; m < kk; ++m)
+            for (long r = 0; r < N; ++r) aug(r + kk, m) = f(x_values[r], ys_s[m]);
+          range R(0, Nk);
+          return nda::linalg::det(aug(R, R)) / det;
+        };
 
         if constexpr (Rx == Ry) {
           TRIQS_ASSERT(xs.shape() == ys.shape());
@@ -777,7 +765,7 @@ namespace triqs::det_manip {
               xm[j] = xs(m, j);
               ym[j] = ys(m, j);
             }
-            result(m) = compute_insertk_ratio(xm, ym);
+            result(m) = single_ratio(xm, ym);
           }
           return result;
         } else if constexpr (Rx > Ry) {
@@ -803,7 +791,7 @@ namespace triqs::det_manip {
                 xm[j] = fxs[i * Kk + m * k + j];
                 ym[j] = ys(m, j);
               }
-              result.data()[i * K + m] = compute_insertk_ratio(xm, ym);
+              result.data()[i * K + m] = single_ratio(xm, ym);
             }
           return result;
         } else {
@@ -829,7 +817,7 @@ namespace triqs::det_manip {
                 xm[j] = xs(m, j);
                 ym[j] = fys[i * Kk + m * k + j];
               }
-              result.data()[i * K + m] = compute_insertk_ratio(xm, ym);
+              result.data()[i * K + m] = single_ratio(xm, ym);
             }
           return result;
         }
