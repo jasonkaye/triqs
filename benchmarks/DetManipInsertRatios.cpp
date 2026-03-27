@@ -130,6 +130,30 @@ static void BM_insert2_ratios_batch(benchmark::State &state) {
 BENCHMARK(BM_insert2_ratios_loop)->Arg(16)->Arg(64)->Arg(128)->Arg(256)->Arg(512);
 BENCHMARK(BM_insert2_ratios_batch)->Arg(16)->Arg(64)->Arg(128)->Arg(256)->Arg(512);
 
+static void BM_insert2_ratios_broadcast_batch(benchmark::State &state) {
+  long N = state.range(0);
+  auto D = make_det(N);
+  // x0s(M, K), y0s(M, K) vary; x1s(K), y1s(K) broadcast -- matches insertk broadcast with k=2
+  long M = 5;
+  nda::array<double, 2> x0s(M, K), y0s(M, K);
+  nda::array<double, 1> x1s(K), y1s(K);
+  for (long i = 0; i < M; ++i)
+    for (long m = 0; m < K; ++m) {
+      x0s(i, m) = 0.5 + 0.1 * m + 0.2 * i;
+      y0s(i, m) = 0.3 + 0.1 * m + 0.2 * i;
+    }
+  for (long m = 0; m < K; ++m) {
+    x1s(m) = 0.6 + 0.1 * m;
+    y1s(m) = 0.4 + 0.1 * m;
+  }
+  for (auto _ : state) {
+    auto result = D.insert2_ratios(0, 1, 0, 1, x0s, x1s, y0s, y1s);
+    benchmark::DoNotOptimize(result);
+  }
+}
+
+BENCHMARK(BM_insert2_ratios_broadcast_batch)->Arg(64)->Arg(128)->Arg(256);
+
 // ============ Matrix (product) benchmarks ============
 
 static void BM_insert_ratios_matrix_loop(benchmark::State &state) {
@@ -209,22 +233,75 @@ static void BM_insertk_ratios_batch(benchmark::State &state) {
 }
 
 BENCHMARK(BM_insertk_ratios_loop)
+   ->Args({64, 1})
    ->Args({64, 2})
    ->Args({64, 3})
    ->Args({64, 4})
+   ->Args({128, 1})
    ->Args({128, 2})
    ->Args({128, 3})
    ->Args({128, 4})
+   ->Args({256, 1})
    ->Args({256, 2})
    ->Args({256, 3})
    ->Args({256, 4});
 BENCHMARK(BM_insertk_ratios_batch)
+   ->Args({64, 1})
    ->Args({64, 2})
    ->Args({64, 3})
    ->Args({64, 4})
+   ->Args({128, 1})
    ->Args({128, 2})
    ->Args({128, 3})
    ->Args({128, 4})
+   ->Args({256, 1})
    ->Args({256, 2})
    ->Args({256, 3})
    ->Args({256, 4});
+
+// ============ Rank-k broadcast benchmarks ============
+
+static constexpr long M_bcast = 5; // broadcast dimension
+
+static void BM_insertk_ratios_broadcast_loop(benchmark::State &state) {
+  long N_size = state.range(0);
+  long k      = state.range(1);
+  auto D      = make_det(N_size);
+  // xs(M, K, k) broadcast over ys(K, k): loop version
+  std::vector<std::vector<double>> xs(M_bcast * K), ys(K);
+  for (long m = 0; m < K; ++m) {
+    ys[m].resize(k);
+    for (long j = 0; j < k; ++j) ys[m][j] = 0.3 + 0.1 * m + 0.01 * j;
+  }
+  for (long i = 0; i < M_bcast; ++i)
+    for (long m = 0; m < K; ++m) {
+      xs[i * K + m].resize(k);
+      for (long j = 0; j < k; ++j) xs[i * K + m][j] = 0.5 + 0.1 * m + 0.01 * j + 0.2 * i;
+    }
+  for (auto _ : state) {
+    double sum = 0;
+    for (long i = 0; i < M_bcast; ++i)
+      for (long m = 0; m < K; ++m) sum += D.compute_insertk_ratio(xs[i * K + m], ys[m]);
+    benchmark::DoNotOptimize(sum);
+  }
+}
+
+static void BM_insertk_ratios_broadcast_batch(benchmark::State &state) {
+  long N_size = state.range(0);
+  long k      = state.range(1);
+  auto D      = make_det(N_size);
+  nda::array<double, 3> xs(M_bcast, K, k);
+  nda::matrix<double> ys(K, k);
+  for (long m = 0; m < K; ++m)
+    for (long j = 0; j < k; ++j) ys(m, j) = 0.3 + 0.1 * m + 0.01 * j;
+  for (long i = 0; i < M_bcast; ++i)
+    for (long m = 0; m < K; ++m)
+      for (long j = 0; j < k; ++j) xs(i, m, j) = 0.5 + 0.1 * m + 0.01 * j + 0.2 * i;
+  for (auto _ : state) {
+    auto result = D.insertk_ratios(xs, ys);
+    benchmark::DoNotOptimize(result);
+  }
+}
+
+BENCHMARK(BM_insertk_ratios_broadcast_loop)->Args({64, 2})->Args({64, 3})->Args({128, 2})->Args({128, 3})->Args({256, 2})->Args({256, 3});
+BENCHMARK(BM_insertk_ratios_broadcast_batch)->Args({64, 2})->Args({64, 3})->Args({128, 2})->Args({128, 3})->Args({256, 2})->Args({256, 3});

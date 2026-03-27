@@ -602,6 +602,171 @@ void test_basic_insertk_ratios_vs_sequential() {
   std::cerr << "PASSED" << std::endl;
 }
 
+// Helper: build (M, K, k) rank-3 array of random values
+nda::array<double, 3> random_array3(long M, long K, long k, triqs::mc_tools::random_generator &RNG, double range = 10.0) {
+  nda::array<double, 3> a(M, K, k);
+  for (long i = 0; i < M; ++i)
+    for (long j = 0; j < K; ++j)
+      for (long l = 0; l < k; ++l) a(i, j, l) = RNG(range);
+  return a;
+}
+
+// ============ Broadcast insertk_ratios tests ============
+
+// xs(M, K, k), ys(K, k): broadcast ys. Verify against sequential calls.
+void test_insertk_ratios_broadcast_x() {
+  std::cerr << "=== test_insertk_ratios_broadcast_x ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 13001);
+  build_det(D, 15, RNG);
+
+  for (int k = 1; k <= 4; ++k) {
+    long M = 5, K = 10;
+    auto xs3 = random_array3(M, K, k, RNG);
+    auto ys2 = random_matrix(K, k, RNG);
+
+    auto batch = D.insertk_ratios(xs3, ys2);
+    TRIQS_ASSERT(batch.shape() == (std::array<long, 2>{M, K}));
+
+    for (long i = 0; i < M; ++i)
+      for (long m = 0; m < K; ++m) {
+        std::vector<double> xm(k), ym(k);
+        for (long j = 0; j < k; ++j) {
+          xm[j] = xs3(i, m, j);
+          ym[j] = ys2(m, j);
+        }
+        auto ref = D.compute_insertk_ratio(xm, ym);
+        assert_close(batch(i, m), ref, 1.e-6, "broadcast_x k=" + std::to_string(k) + " i=" + std::to_string(i) + " m=" + std::to_string(m));
+      }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// xs(K, k), ys(M, K, k): broadcast xs. Verify against sequential calls.
+void test_insertk_ratios_broadcast_y() {
+  std::cerr << "=== test_insertk_ratios_broadcast_y ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 13002);
+  build_det(D, 15, RNG);
+
+  for (int k = 1; k <= 4; ++k) {
+    long M = 5, K = 10;
+    auto xs2 = random_matrix(K, k, RNG);
+    auto ys3 = random_array3(M, K, k, RNG);
+
+    auto batch = D.insertk_ratios(xs2, ys3);
+    TRIQS_ASSERT(batch.shape() == (std::array<long, 2>{M, K}));
+
+    for (long i = 0; i < M; ++i)
+      for (long m = 0; m < K; ++m) {
+        std::vector<double> xm(k), ym(k);
+        for (long j = 0; j < k; ++j) {
+          xm[j] = xs2(m, j);
+          ym[j] = ys3(i, m, j);
+        }
+        auto ref = D.compute_insertk_ratio(xm, ym);
+        assert_close(batch(i, m), ref, 1.e-6, "broadcast_y k=" + std::to_string(k) + " i=" + std::to_string(i) + " m=" + std::to_string(m));
+      }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// Cross-validate broadcast between det_manip and det_manip_basic
+void test_insertk_ratios_broadcast_cross_validate() {
+  std::cerr << "=== test_insertk_ratios_broadcast_cross_validate ===" << std::endl;
+  fun f;
+
+  for (int N_size : {3, 5, 8}) {
+    triqs::det_manip::det_manip<fun> D(f, 100);
+    triqs::det_manip::det_manip_basic<fun> Db(f, 100);
+    triqs::mc_tools::random_generator RNG("mt19937", 13003 + N_size);
+
+    for (int n = 0; n < N_size; ++n) {
+      double x = RNG(10.0);
+      double y = RNG(10.0);
+      D.insert(D.size(), D.size(), x, y);
+      Db.insert(Db.size(), Db.size(), x, y);
+    }
+    D.regenerate();
+
+    for (int k = 1; k <= 3; ++k) {
+      long M = 4, K = 6;
+      // Test broadcast ys
+      auto xs3         = random_array3(M, K, k, RNG);
+      auto ys2         = random_matrix(K, k, RNG);
+      auto batch_opt   = D.insertk_ratios(xs3, ys2);
+      auto batch_basic = Db.insertk_ratios(xs3, ys2);
+      for (long i = 0; i < M; ++i)
+        for (long m = 0; m < K; ++m)
+          assert_close(batch_opt(i, m), batch_basic(i, m), 1.e-2, "cross bcast_x N=" + std::to_string(N_size) + " k=" + std::to_string(k));
+
+      // Test broadcast xs
+      auto xs2b         = random_matrix(K, k, RNG);
+      auto ys3b         = random_array3(M, K, k, RNG);
+      auto batch_opt2   = D.insertk_ratios(xs2b, ys3b);
+      auto batch_basic2 = Db.insertk_ratios(xs2b, ys3b);
+      for (long i = 0; i < M; ++i)
+        for (long m = 0; m < K; ++m)
+          assert_close(batch_opt2(i, m), batch_basic2(i, m), 1.e-2, "cross bcast_y N=" + std::to_string(N_size) + " k=" + std::to_string(k));
+    }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// N=0 with broadcasting
+void test_insertk_ratios_broadcast_empty_matrix() {
+  std::cerr << "=== test_insertk_ratios_broadcast_empty_matrix ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 13004);
+
+  for (int k = 1; k <= 3; ++k) {
+    long M = 3, K = 5;
+    auto xs3 = random_array3(M, K, k, RNG);
+    auto ys2 = random_matrix(K, k, RNG);
+
+    auto batch = D.insertk_ratios(xs3, ys2);
+    for (long i = 0; i < M; ++i)
+      for (long m = 0; m < K; ++m) {
+        std::vector<double> xm(k), ym(k);
+        for (long j = 0; j < k; ++j) {
+          xm[j] = xs3(i, m, j);
+          ym[j] = ys2(m, j);
+        }
+        auto ref = D.compute_insertk_ratio(xm, ym);
+        assert_close(batch(i, m), ref, 1.e-14, "bcast_empty k=" + std::to_string(k) + " i=" + std::to_string(i) + " m=" + std::to_string(m));
+      }
+  }
+  std::cerr << "PASSED" << std::endl;
+}
+
+// State unchanged after broadcast call
+void test_insertk_ratios_broadcast_state_unchanged() {
+  std::cerr << "=== test_insertk_ratios_broadcast_state_unchanged ===" << std::endl;
+  fun f;
+  triqs::det_manip::det_manip<fun> D(f, 100);
+  triqs::mc_tools::random_generator RNG("mt19937", 13005);
+  build_det(D, 15, RNG);
+
+  auto det_before  = D.determinant();
+  auto size_before = D.size();
+
+  for (int k = 1; k <= 3; ++k) {
+    auto xs3 = random_array3(4, 8, k, RNG);
+    auto ys2 = random_matrix(8, k, RNG);
+    D.insertk_ratios(xs3, ys2);
+    auto xs2 = random_matrix(8, k, RNG);
+    auto ys3 = random_array3(4, 8, k, RNG);
+    D.insertk_ratios(xs2, ys3);
+  }
+
+  if (D.size() != size_before) TRIQS_RUNTIME_ERROR << "Size changed!";
+  assert_close(D.determinant(), det_before, 1.e-14, "det changed");
+  std::cerr << "PASSED" << std::endl;
+}
+
 int main() {
   // det_manip: compute_insertk_ratio tests
   test_k1_vs_try_insert();
@@ -630,6 +795,13 @@ int main() {
   test_insertk_ratios_single_candidate();
   test_insertk_ratios_empty_batch();
   test_basic_insertk_ratios_vs_sequential();
+
+  // Broadcast insertk_ratios tests
+  test_insertk_ratios_broadcast_x();
+  test_insertk_ratios_broadcast_y();
+  test_insertk_ratios_broadcast_cross_validate();
+  test_insertk_ratios_broadcast_empty_matrix();
+  test_insertk_ratios_broadcast_state_unchanged();
 
   std::cerr << "\nAll tests PASSED." << std::endl;
   return 0;

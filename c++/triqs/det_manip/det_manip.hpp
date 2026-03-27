@@ -989,21 +989,20 @@ namespace triqs::det_manip {
       return nda::linalg::det(ksi(Rk, Rk));
     }
 
-    /// Compute K independent rank-k insertion det-ratios in a single batched call.
-    /// xs: (K, k) matrix -- row m gives the k x-values for candidate m.
-    /// ys: (K, k) matrix -- row m gives the k y-values for candidate m.
-    /// Returns array of K raw Schur complement determinants (no position-dependent sign).
+    /// Compute batched rank-k insertion det-ratios via shared GEMM.
+    /// xs and ys: rank-2 arrays (K, k) or rank-3 arrays (M, K, k).
+    /// When ranks differ, the rank-2 input is broadcast along the extra leading dimension.
+    /// Returns raw Schur complement determinants (no position-dependent sign).
     /// Read-only: does not modify internal state.
-    nda::array<value_type, 1> insertk_ratios(nda::matrix_const_view<x_type> xs, nda::matrix_const_view<y_type> ys) const {
-      TRIQS_ASSERT(xs.shape() == ys.shape());
-      long K = xs.extent(0);
-      long k = xs.extent(1);
+    template <nda::Array X, nda::Array Y>
+      requires(nda::get_rank<X> >= 2 && nda::get_rank<X> <= 3 && nda::get_rank<Y> >= 2 && nda::get_rank<Y> <= 3
+               && nda::get_rank<X> + nda::get_rank<Y> <= 5)
+    auto insertk_ratios(X const &xs, Y const &ys) const -> nda::array<value_type, std::max(nda::get_rank<X>, nda::get_rank<Y>) - 1> {
+      constexpr int Rx   = nda::get_rank<X>;
+      constexpr int Ry   = nda::get_rank<Y>;
+      constexpr int Rout = std::max(Rx, Ry) - 1;
 
-      nda::array<value_type, 1> result(K);
-      if (K == 0) return result;
-      TRIQS_ASSERT(k > 0);
-
-      // Helper: inline determinant for small k x k matrices
+      // Inline determinant for small k x k matrices
       auto small_det = [](nda::matrix<value_type> const &m, long k) -> value_type {
         if (k == 1) return m(0, 0);
         if (k == 2) return m(0, 0) * m(1, 1) - m(0, 1) * m(1, 0);
@@ -1014,47 +1013,172 @@ namespace triqs::det_manip {
         return nda::linalg::det(m(Rk, Rk));
       };
 
-      if (N == 0) {
-        nda::matrix<value_type> ksi(k, k);
+      if constexpr (Rx == Ry) {
+        // Same rank: xs(K, k), ys(K, k) -> result(K)
+        TRIQS_ASSERT(xs.shape() == ys.shape());
+        long K = xs.extent(0);
+        long k = xs.extent(1);
+
+        nda::array<value_type, 1> result(K);
+        if (K == 0) return result;
+        TRIQS_ASSERT(k > 0);
+
+        auto fxs = flatten_array(xs);
+        auto fys = flatten_array(ys);
+
+        if (N == 0) {
+          nda::matrix<value_type> ksi(k, k);
+          for (long m = 0; m < K; ++m) {
+            for (long a = 0; a < k; ++a)
+              for (long b = 0; b < k; ++b) ksi(a, b) = f(fxs[m * k + a], fys[m * k + b]);
+            result(m) = small_det(ksi, k);
+          }
+          return result;
+        }
+
+        range RN(N);
+
+        // B_all(N, K*k): columns [m*k, (m+1)*k) belong to candidate m
+        nda::matrix<value_type> B_all(N, K * k), MB_all(N, K * k);
+        for (long n = 0; n < N; ++n)
+          for (long m = 0; m < K; ++m)
+            for (long j = 0; j < k; ++j) B_all(n, m * k + j) = f(x_values[n], fys[m * k + j]);
+
+        blas::gemm(1.0, mat_inv(RN, RN), B_all, 0.0, MB_all);
+
+        nda::matrix<value_type> ksi(k, k), C_m(k, N);
         for (long m = 0; m < K; ++m) {
-          for (long i = 0; i < k; ++i)
-            for (long j = 0; j < k; ++j) ksi(i, j) = f(xs(m, i), ys(m, j));
+          for (long a = 0; a < k; ++a)
+            for (long b = 0; b < k; ++b) ksi(a, b) = f(fxs[m * k + a], fys[m * k + b]);
+          for (long a = 0; a < k; ++a)
+            for (long n = 0; n < N; ++n) C_m(a, n) = f(fxs[m * k + a], y_values[n]);
+
+          range Rk(k);
+          auto MB_m = MB_all(RN, range(m * k, (m + 1) * k));
+          blas::gemm(-1.0, C_m(Rk, RN), MB_m, 1.0, ksi(Rk, Rk));
           result(m) = small_det(ksi, k);
         }
         return result;
-      }
 
-      range RN(N);
+      } else if constexpr (Rx > Ry) {
+        // xs(M, K, k), ys(K, k) -> result(M, K). ys broadcast.
+        auto shape_x = xs.shape();
+        auto shape_y = ys.shape();
+        for (int d = 0; d < Ry; ++d) TRIQS_ASSERT(shape_x[Rx - Ry + d] == shape_y[d]);
 
-      // Build B_all(N, K*k): columns [m*k, (m+1)*k) belong to candidate m
-      nda::matrix<value_type> B_all(N, K * k), MB_all(N, K * k);
-      for (long n = 0; n < N; ++n)
+        long K  = shape_y[0];
+        long k  = shape_y[1];
+        long Kk = K * k;
+        long M  = xs.size() / (K * k);
+        TRIQS_ASSERT(xs.size() % (K * k) == 0);
+        TRIQS_ASSERT(k > 0);
+
+        // Result shape: xs shape with last dim dropped
+        std::array<long, Rout> res_shape;
+        for (int d = 0; d < Rout; ++d) res_shape[d] = shape_x[d];
+        nda::array<value_type, Rout> result(res_shape);
+
+        auto fxs = flatten_array(xs);
+        auto fys = flatten_array(ys);
+
+        if (N == 0) {
+          nda::matrix<value_type> ksi(k, k);
+          for (long i = 0; i < M; ++i)
+            for (long m = 0; m < K; ++m) {
+              for (long a = 0; a < k; ++a)
+                for (long b = 0; b < k; ++b) ksi(a, b) = f(fxs[i * Kk + m * k + a], fys[m * k + b]);
+              result.data()[i * K + m] = small_det(ksi, k);
+            }
+          return result;
+        }
+
+        range RN(N);
+
+        // B depends on ys only -> one shared GEMM, reused M times
+        nda::matrix<value_type> B_all(N, Kk), MB_all(N, Kk);
+        for (long n = 0; n < N; ++n)
+          for (long m = 0; m < K; ++m)
+            for (long j = 0; j < k; ++j) B_all(n, m * k + j) = f(x_values[n], fys[m * k + j]);
+
+        blas::gemm(1.0, mat_inv(RN, RN), B_all, 0.0, MB_all);
+
+        nda::matrix<value_type> ksi(k, k), C_m(k, N);
+        for (long i = 0; i < M; ++i)
+          for (long m = 0; m < K; ++m) {
+            long im = i * Kk + m * k;
+            for (long a = 0; a < k; ++a)
+              for (long b = 0; b < k; ++b) ksi(a, b) = f(fxs[im + a], fys[m * k + b]);
+            for (long a = 0; a < k; ++a)
+              for (long n = 0; n < N; ++n) C_m(a, n) = f(fxs[im + a], y_values[n]);
+
+            range Rk(k);
+            auto MB_m = MB_all(RN, range(m * k, (m + 1) * k));
+            blas::gemm(-1.0, C_m(Rk, RN), MB_m, 1.0, ksi(Rk, Rk));
+            result.data()[i * K + m] = small_det(ksi, k);
+          }
+        return result;
+
+      } else {
+        // xs(K, k), ys(M, K, k) -> result(M, K). xs broadcast.
+        auto shape_x = xs.shape();
+        auto shape_y = ys.shape();
+        for (int d = 0; d < Rx; ++d) TRIQS_ASSERT(shape_y[Ry - Rx + d] == shape_x[d]);
+
+        long K  = shape_x[0];
+        long k  = shape_x[1];
+        long Kk = K * k;
+        long M  = ys.size() / (K * k);
+        TRIQS_ASSERT(ys.size() % (K * k) == 0);
+        TRIQS_ASSERT(k > 0);
+
+        // Result shape: ys shape with last dim dropped
+        std::array<long, Rout> res_shape;
+        for (int d = 0; d < Rout; ++d) res_shape[d] = shape_y[d];
+        nda::array<value_type, Rout> result(res_shape);
+
+        auto fxs = flatten_array(xs);
+        auto fys = flatten_array(ys);
+
+        if (N == 0) {
+          nda::matrix<value_type> ksi(k, k);
+          for (long i = 0; i < M; ++i)
+            for (long m = 0; m < K; ++m) {
+              for (long a = 0; a < k; ++a)
+                for (long b = 0; b < k; ++b) ksi(a, b) = f(fxs[m * k + a], fys[i * Kk + m * k + b]);
+              result.data()[i * K + m] = small_det(ksi, k);
+            }
+          return result;
+        }
+
+        range RN(N);
+
+        // B depends on ys which varies -> stack all M*K*k columns into one big GEMM
+        nda::matrix<value_type> B_all(N, M * Kk), MB_all(N, M * Kk);
+        for (long n = 0; n < N; ++n)
+          for (long idx = 0; idx < M * Kk; ++idx) B_all(n, idx) = f(x_values[n], fys[idx]);
+
+        blas::gemm(1.0, mat_inv(RN, RN), B_all, 0.0, MB_all);
+
+        // C depends on xs only -> precompute K matrices, reuse M times
+        nda::matrix<value_type> C_all(Kk, N);
         for (long m = 0; m < K; ++m)
-          for (long j = 0; j < k; ++j) B_all(n, m * k + j) = f(x_values[n], ys(m, j));
+          for (long a = 0; a < k; ++a)
+            for (long n = 0; n < N; ++n) C_all(m * k + a, n) = f(fxs[m * k + a], y_values[n]);
 
-      // Shared GEMM: MB_all = mat_inv * B_all
-      blas::gemm(1.0, mat_inv(RN, RN), B_all, 0.0, MB_all);
+        nda::matrix<value_type> ksi(k, k);
+        for (long i = 0; i < M; ++i)
+          for (long m = 0; m < K; ++m) {
+            for (long a = 0; a < k; ++a)
+              for (long b = 0; b < k; ++b) ksi(a, b) = f(fxs[m * k + a], fys[i * Kk + m * k + b]);
 
-      // Per-candidate: build ksi, subtract C_m * MB_m, take det
-      nda::matrix<value_type> ksi(k, k), C_m(k, N);
-      for (long m = 0; m < K; ++m) {
-        // Direct term
-        for (long i = 0; i < k; ++i)
-          for (long j = 0; j < k; ++j) ksi(i, j) = f(xs(m, i), ys(m, j));
-
-        // C_m(i, n) = f(xs(m, i), y_values[n])
-        for (long i = 0; i < k; ++i)
-          for (long n = 0; n < N; ++n) C_m(i, n) = f(xs(m, i), y_values[n]);
-
-        // ksi -= C_m * MB_m where MB_m = MB_all(:, m*k:(m+1)*k)
-        range Rk(k);
-        auto MB_m = MB_all(RN, range(m * k, (m + 1) * k));
-        blas::gemm(-1.0, C_m(Rk, RN), MB_m, 1.0, ksi(Rk, Rk));
-
-        result(m) = small_det(ksi, k);
+            range Rk(k);
+            auto C_m  = C_all(range(m * k, (m + 1) * k), RN);
+            auto MB_m = MB_all(RN, range((i * K + m) * k, (i * K + m + 1) * k));
+            blas::gemm(-1.0, C_m(Rk, RN), MB_m, 1.0, ksi(Rk, Rk));
+            result.data()[i * K + m] = small_det(ksi, k);
+          }
+        return result;
       }
-
-      return result;
     }
 
     //------------------------------------------------------------------------------------------

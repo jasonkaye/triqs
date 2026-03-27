@@ -755,23 +755,84 @@ namespace triqs::det_manip {
         return nda::linalg::det(aug(R, R)) / det;
       }
 
-      /// Compute K independent rank-k insertion det-ratios.
-      /// Reference implementation: loops over candidates calling compute_insertk_ratio.
-      nda::array<value_type, 1> insertk_ratios(nda::matrix_const_view<x_type> xs, nda::matrix_const_view<y_type> ys) const {
-        TRIQS_ASSERT(xs.shape() == ys.shape());
-        long K = xs.extent(0);
-        long k = xs.extent(1);
-        nda::array<value_type, 1> result(K);
-        for (long m = 0; m < K; ++m) {
-          std::vector<x_type> xm(k);
-          std::vector<y_type> ym(k);
-          for (long j = 0; j < k; ++j) {
-            xm[j] = xs(m, j);
-            ym[j] = ys(m, j);
+      /// Compute batched rank-k insertion det-ratios. Reference implementation.
+      /// Supports broadcasting: one of xs, ys may have an extra leading dimension.
+      template <nda::Array X, nda::Array Y>
+        requires(nda::get_rank<X> >= 2 && nda::get_rank<X> <= 3 && nda::get_rank<Y> >= 2 && nda::get_rank<Y> <= 3
+                 && nda::get_rank<X> + nda::get_rank<Y> <= 5)
+      auto insertk_ratios(X const &xs, Y const &ys) const -> nda::array<value_type, std::max(nda::get_rank<X>, nda::get_rank<Y>) - 1> {
+        constexpr int Rx   = nda::get_rank<X>;
+        constexpr int Ry   = nda::get_rank<Y>;
+        constexpr int Rout = std::max(Rx, Ry) - 1;
+
+        if constexpr (Rx == Ry) {
+          TRIQS_ASSERT(xs.shape() == ys.shape());
+          long K = xs.extent(0);
+          long k = xs.extent(1);
+          nda::array<value_type, 1> result(K);
+          for (long m = 0; m < K; ++m) {
+            std::vector<x_type> xm(k);
+            std::vector<y_type> ym(k);
+            for (long j = 0; j < k; ++j) {
+              xm[j] = xs(m, j);
+              ym[j] = ys(m, j);
+            }
+            result(m) = compute_insertk_ratio(xm, ym);
           }
-          result(m) = compute_insertk_ratio(xm, ym);
+          return result;
+        } else if constexpr (Rx > Ry) {
+          // xs(M, K, k), ys(K, k)
+          auto shape_x = xs.shape();
+          auto shape_y = ys.shape();
+          for (int d = 0; d < Ry; ++d) TRIQS_ASSERT(shape_x[Rx - Ry + d] == shape_y[d]);
+          long K  = shape_y[0];
+          long k  = shape_y[1];
+          long Kk = K * k;
+          long M  = xs.size() / Kk;
+
+          std::array<long, Rout> res_shape;
+          for (int d = 0; d < Rout; ++d) res_shape[d] = shape_x[d];
+          nda::array<value_type, Rout> result(res_shape);
+
+          auto fxs = flatten_array(xs);
+          for (long i = 0; i < M; ++i)
+            for (long m = 0; m < K; ++m) {
+              std::vector<x_type> xm(k);
+              std::vector<y_type> ym(k);
+              for (long j = 0; j < k; ++j) {
+                xm[j] = fxs[i * Kk + m * k + j];
+                ym[j] = ys(m, j);
+              }
+              result.data()[i * K + m] = compute_insertk_ratio(xm, ym);
+            }
+          return result;
+        } else {
+          // xs(K, k), ys(M, K, k)
+          auto shape_x = xs.shape();
+          auto shape_y = ys.shape();
+          for (int d = 0; d < Rx; ++d) TRIQS_ASSERT(shape_y[Ry - Rx + d] == shape_x[d]);
+          long K  = shape_x[0];
+          long k  = shape_x[1];
+          long Kk = K * k;
+          long M  = ys.size() / Kk;
+
+          std::array<long, Rout> res_shape;
+          for (int d = 0; d < Rout; ++d) res_shape[d] = shape_y[d];
+          nda::array<value_type, Rout> result(res_shape);
+
+          auto fys = flatten_array(ys);
+          for (long i = 0; i < M; ++i)
+            for (long m = 0; m < K; ++m) {
+              std::vector<x_type> xm(k);
+              std::vector<y_type> ym(k);
+              for (long j = 0; j < k; ++j) {
+                xm[j] = xs(m, j);
+                ym[j] = fys[i * Kk + m * k + j];
+              }
+              result.data()[i * K + m] = compute_insertk_ratio(xm, ym);
+            }
+          return result;
         }
-        return result;
       }
 
       //------------------------------------------------------------------------------------------
