@@ -19,7 +19,7 @@
 
 /**
  * @file
- * @brief Provides a type erased random number generator.
+ * @brief Provides a type erased random number generator based on 64-bit standard library engines.
  */
 
 #pragma once
@@ -27,7 +27,6 @@
 #include <h5/h5.hpp>
 
 #include <cassert>
-#include <cmath>
 #include <concepts>
 #include <cstdint>
 #include <iostream>
@@ -47,63 +46,57 @@ namespace triqs::mc_tools {
   /**
    * @brief Wrapper that erases the type of a random number generator.
    *
-   * @details The following RNGs are supported (see also triqs::mc_tools::random_generator_names() or
-   * triqs::mc_tools::random_generator_names_list()): 
-   * 
-   * - *empty string*: uses the custom Mersenne Twister RNG in triqs/mc_tools/MersenneRNG.hpp
-   * - *mt19937*: uses `boost::mt19937`
-   * - *mt11213b*: uses `boost::mt11213b`
-   * - *lagged_fibonacci607*: uses `boost::lagged_fibonacci607`
-   * - *lagged_fibonacci1279*: uses `boost::lagged_fibonacci127`
-   * - *lagged_fibonacci2281*: uses `boost::lagged_fibonacci2281`
-   * - *lagged_fibonacci3217*: uses `boost::lagged_fibonacci3217`
-   * - *lagged_fibonacci4423*: uses `boost::lagged_fibonacci4423`
-   * - *lagged_fibonacci9689*: uses `boost::lagged_fibonacci9689`
-   * - *lagged_fibonacci19937*: uses `boost::lagged_fibonacci19937`
-   * - *lagged_fibonacci23209*: uses `boost::lagged_fibonacci23209`
-   * - *lagged_fibonacci44497*: uses `boost::lagged_fibonacci44497`
-   * - *ranlux3*: uses `boost::ranlux3`
-   * 
-   * The RNG is specified in the constructor by giving its name.
+   * @details All supported engines produce 64-bit unsigned integers internally via the standard library.
+   * Engines with native output smaller than 64 bits are wrapped using `std::independent_bits_engine`.
    *
-   * For performance reasons, we use a buffer for the generated random numbers to avoid some of the costs of repeated
-   * function calls to the RNG.
+   * The following engines are supported (see also triqs::mc_tools::random_generator_names_list()):
+   *
+   * - *empty string* or *mt19937_64*: uses `std::mt19937_64` (default, native 64-bit)
+   * - *mt19937*: uses `std::mt19937` (32-bit, combined to 64-bit)
+   * - *ranlux48*: uses `std::ranlux48` (48-bit, combined to 64-bit)
+   * - *ranlux24*: uses `std::ranlux24` (24-bit, combined to 64-bit)
+   * - *minstd_rand*: uses `std::minstd_rand` (31-bit, combined to 64-bit)
+   * - *knuth_b*: uses `std::knuth_b` (31-bit, combined to 64-bit)
+   *
+   * For performance, raw `uint64_t` values are generated in batches and stored in a buffer.
+   * Doubles in [0, 1) are derived using the standard 53-bit technique.
+   * Integers in [0, i) are generated using Lemire's nearly divisionless method (unbiased for all ranges).
    */
   class random_generator {
     private:
-    // RNG concept defines the interface for RNGs.
+    // RNG concept defines the interface for RNGs producing uint64_t.
     struct rng_concept {
       virtual ~rng_concept()                                 = default;
-      virtual double operator()()                            = 0;
-      virtual void refill(std::vector<double> &)             = 0;
+      virtual std::uint64_t operator()()                     = 0;
+      virtual void refill(std::vector<std::uint64_t> &)      = 0;
       virtual std::ostream &to_ostream(std::ostream &) const = 0;
       virtual std::istream &from_istream(std::istream &)     = 0;
     };
 
-    // RNG model implements the RNG concept by calling the appropriate methods of the type erased object.
+    // RNG model wraps a concrete engine that produces uint64_t.
     template <typename T> struct rng_model : public rng_concept {
-      T rng_;
-      rng_model(T rng) : rng_{std::move(rng)} {}
-      double operator()() override { return rng_(); }
-      void refill(std::vector<double> &buffer) override {
-        for (auto &x : buffer) x = rng_();
+      T engine_;
+      rng_model(T engine) : engine_{std::move(engine)} {}
+      std::uint64_t operator()() override { return engine_(); }
+      void refill(std::vector<std::uint64_t> &buffer) override {
+        for (auto &x : buffer) x = engine_();
       }
       std::ostream &to_ostream(std::ostream &os) const override {
-        os << rng_.engine();
+        os << engine_;
         return os;
       }
       std::istream &from_istream(std::istream &is) override {
-        is >> rng_.engine();
+        is >> engine_;
         return is;
       }
     };
 
     public:
     /// Default seed for the underlying RNG.
-    static constexpr std::uint32_t default_seed = 198;
+    static constexpr std::uint64_t default_seed = 198;
 
-    /// Default constructor uses Boost's Mersenne Twister 19937 RNG.
-    random_generator() : random_generator("mt19937", default_seed) {}
+    /// Default constructor uses std::mt19937_64 RNG.
+    random_generator() : random_generator("mt19937_64", default_seed) {}
 
     /**
      * @brief Construct a random generator by wrapping the specified RNG and seeding it with the given seed.
@@ -112,13 +105,13 @@ namespace triqs::mc_tools {
      * triqs::mc_tools::random_generator_names() or triqs::mc_tools::random_generator_names_list()). If the name does
      * not match any of the supported RNGs, a `std::runtime_error` is thrown.
      *
-     * An empty name corresponds to the RNG in triqs/mc_tools/MersenneRNG.hpp.
+     * An empty name corresponds to the default RNG (std::mt19937_64).
      *
      * @param name Name of the RNG to be used.
      * @param seed Seed for the RNG.
      * @param buffer_size Size of the buffer used to store random numbers.
      */
-    random_generator(std::string name, std::uint32_t seed, std::size_t buffer_size = 1000);
+    random_generator(std::string name, std::uint64_t seed, std::size_t buffer_size = 1000);
 
     /// Deleted copy constructor.
     random_generator(random_generator const &) = delete;
@@ -135,14 +128,31 @@ namespace triqs::mc_tools {
     /**
      * @brief Generate a random sample from the uniform integer distribution defined on \f$ \{0, ..., i-1 \}\f$.
      *
+     * @details Uses Lemire's nearly divisionless method for unbiased generation across all ranges,
+     * including very large ranges up to UINT64_MAX.
+     *
      * @tparam T Integral type.
      * @param i Upper bound (excluded).
-     * @return Uniform random integer.
+     * @return Uniform random integer in [0, i).
      */
     template <typename T>
       requires(std::integral<T>)
     T operator()(T i) {
-      return (i == 1 ? 0 : static_cast<T>(std::floor(i * this->operator()())));
+      if (i <= 1) return 0;
+      auto range = static_cast<std::uint64_t>(i);
+      auto x     = raw_uint64();
+      // Lemire's nearly divisionless method
+      __uint128_t m = __uint128_t(x) * __uint128_t(range);
+      auto l        = static_cast<std::uint64_t>(m);
+      if (l < range) {
+        auto t = -range % range; // rejection threshold
+        while (l < t) {
+          x = raw_uint64();
+          m = __uint128_t(x) * __uint128_t(range);
+          l = static_cast<std::uint64_t>(m);
+        }
+      }
+      return static_cast<T>(m >> 64);
     }
 
     /**
@@ -151,17 +161,18 @@ namespace triqs::mc_tools {
      */
     [[nodiscard]] double preview() {
       if (idx_ > buffer_.size() - 1) refill();
-      return buffer_[idx_];
+      return to_double(buffer_[idx_]);
     }
 
     /**
      * @brief Generate a random sample from the uniform distribution defined on the interval \f$ [0, 1) \f$.
+     *
+     * @details Uses the standard 53-bit technique: the upper 53 bits of a 64-bit integer are scaled
+     * to produce a double with full mantissa precision.
+     *
      * @return Uniform random double from the interval \f$ [0, 1) \f$.
      */
-    double operator()() {
-      if (idx_ > buffer_.size() - 1) refill();
-      return buffer_[idx_++];
-    }
+    double operator()() { return to_double(raw_uint64()); }
 
     /**
      * @brief Generate a random sample from the uniform distribution defined on the interval \f$ [0, b) \f$.
@@ -224,6 +235,15 @@ namespace triqs::mc_tools {
     }
 
     private:
+    // Convert a raw uint64_t to a double in [0, 1) using the 53-bit technique.
+    static double to_double(std::uint64_t x) { return (x >> 11) * 0x1.0p-53; }
+
+    // Get the next raw uint64_t from the buffer.
+    std::uint64_t raw_uint64() {
+      if (idx_ > buffer_.size() - 1) refill();
+      return buffer_[idx_++];
+    }
+
     // Refill the buffer.
     void refill() {
       ptr_->refill(buffer_);
@@ -231,12 +251,12 @@ namespace triqs::mc_tools {
     }
 
     // Initialize the RNG.
-    void initialize_rng(std::string const &name, std::uint32_t seed);
+    void initialize_rng(std::string const &name, std::uint64_t seed);
 
     private:
     std::unique_ptr<rng_concept> ptr_;
     size_t idx_{0};
-    std::vector<double> buffer_;
+    std::vector<std::uint64_t> buffer_;
     std::string name_;
   };
 

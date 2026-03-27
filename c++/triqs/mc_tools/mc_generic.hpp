@@ -36,6 +36,7 @@
 
 #include <h5/h5.hpp>
 
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -145,7 +146,7 @@ namespace triqs::mc_tools {
      * @param rng_seed Seed for the RNG.
      * @param verbosity_lvl Verbosity level (see triqs::utility::report_stream).
      */
-    mc_generic(const std::string &rng_name, int rng_seed, int verbosity_lvl)
+    mc_generic(const std::string &rng_name, std::int64_t rng_seed, int verbosity_lvl)
        : rng_(rng_name, rng_seed), moves_(rng_), report_(&std::cout, verbosity_lvl) {}
 
     /**
