@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <limits>
 #include <string>
 #include <vector>
 #include <map>
@@ -169,6 +170,8 @@ namespace triqs {
       TRIQS_CPP2PY_IGNORE class hilbert_space const &get_full_hilbert_space() const { return full_hs; }
 
       /// Dimension of the full Hilbert space
+      /// @note After truncation, this still returns the original (untruncated) dimension.
+      ///       Use get_total_eigenstate_count() to get the number of retained eigenstates.
       int get_full_hilbert_space_dim() const { return full_hs.size(); }
 
       /// Number of invariant subspaces
@@ -188,9 +191,13 @@ namespace triqs {
       }
 
       /// The list of Fock states for a particular subspace
+      /// @note After truncation, this returns ALL original Fock states of the subspace,
+      ///       which may exceed the number of retained eigenstates (get_subspace_dim).
+      ///       Use get_subspace_dim(sp_index) for the eigenstate count.
       std::vector<fock_state_t> const &get_fock_states(int sp_index) const { return sub_hilbert_spaces[sp_index].get_all_fock_states(); }
 
       /// The list of Fock states for each subspace
+      /// @note See single-subspace overload for truncation behavior.
       std::vector<std::vector<fock_state_t>> get_fock_states() const {
         std::vector<std::vector<fock_state_t>> fock_states(n_subspaces());
         for (int i : range(n_subspaces())) fock_states[i] = sub_hilbert_spaces[i].get_all_fock_states();
@@ -247,14 +254,39 @@ namespace triqs {
       /// Ground state energy (i.e. min of all subspaces)
       double get_gs_energy() const { return gs_energy; }
 
+      /// Check if the vacuum state |0> is present in the (possibly truncated) Hilbert space
+      bool has_vacuum() const { return vacuum_subspace_index != -1; }
+
       /// Returns invariant subspace containing the vacuum state
+      /// @note Returns -1 if the vacuum subspace was removed during truncation. Check has_vacuum() first.
       long get_vacuum_subspace_index() const { return vacuum_subspace_index; }
 
       /// Returns the vacuum state as a vector in the full Hilbert space
       /**
        * This vector is written in the eigenbasis of the Hamiltonian.
+       * @note After truncation, this is a projection into the truncated eigenbasis (not unit-normalized).
+       *       Returns a zero vector if the vacuum subspace was removed. Check has_vacuum() first.
        */
       full_hilbert_space_state_t const &get_vacuum_state() const { return vacuum; }
+
+      /// Check if this atom_diag has been truncated
+      bool is_truncated() const { return truncated_; }
+
+      /// Get total number of eigenstates across all subspaces
+      int get_total_eigenstate_count() const {
+        if (n_subspaces() == 0) return 0;
+        return first_eigenstate_of_subspace.back() + get_subspace_dim(n_subspaces() - 1);
+      }
+
+      /// Create a truncated copy of this atom_diag
+      /**
+       * @param energy_cutoff Keep states with energy <= energy_cutoff (relative to ground state)
+       * @param max_states Keep at most max_states globally across all subspaces (-1 = unlimited).
+       *        Note: if degenerate states exist at the cutoff boundary, the truncation may
+       *        split a degenerate multiplet by keeping only some of the degenerate states.
+       * @return New atom_diag with truncated Hilbert space
+       */
+      [[nodiscard]] atom_diag truncate(double energy_cutoff = std::numeric_limits<double>::infinity(), int max_states = -1) const;
 
       /// Subspace-to-subspace connections for fundamental operator :math:`C`
       /**
@@ -330,6 +362,8 @@ namespace triqs {
       std::vector<std::vector<quantum_number_t>> quantum_numbers; // Values of the quantum numbers for each subspace
 
       std::vector<int> first_eigenstate_of_subspace; // Index of the first eigenstate of each subspace
+      bool truncated_ = false;                       // Flag indicating truncation was applied
+
       void fill_first_eigenstate_of_subspace();
       void compute_vacuum();
 

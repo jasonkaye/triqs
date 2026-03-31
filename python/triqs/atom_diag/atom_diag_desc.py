@@ -160,6 +160,36 @@ for c_py, c_cpp, in (('Real','false'),('Complex','true')):
                    getter = cfunction("%s::full_hilbert_space_state_t get_vacuum_state ()" % c_type),
                    doc = "Returns the vacuum state as a vector in the full Hilbert space")
 
+    c.add_property(name = "is_truncated",
+                   getter = cfunction("bool is_truncated ()"),
+                   doc = "Check if this atom_diag has been truncated")
+
+    c.add_property(name = "has_vacuum",
+                   getter = cfunction("bool has_vacuum ()"),
+                   doc = "Check if the vacuum state |0> is present in the (possibly truncated) Hilbert space")
+
+    c.add_property(name = "total_eigenstate_count",
+                   getter = cfunction("int get_total_eigenstate_count ()"),
+                   doc = "Get total number of eigenstates across all subspaces")
+
+    c.add_method("%s truncate (double energy_cutoff = std::numeric_limits<double>::infinity(), int max_states = -1)" % c_type,
+                 doc = """Create a truncated copy of this atom_diag
+
+Parameters
+----------
+energy_cutoff : float, optional
+    Keep states with energy <= energy_cutoff (relative to ground state). Default: infinity (no cutoff)
+max_states : int, optional
+    Keep at most max_states globally across all subspaces. Default: -1 (no limit).
+    Note: if degenerate states exist at the cutoff boundary, the truncation may
+    split a degenerate multiplet by keeping only some of the degenerate states.
+
+Returns
+-------
+atom_diag
+    New atom_diag with truncated Hilbert space
+""")
+
     module.add_class(c)
 
 # Wrap free functions
