@@ -149,6 +149,12 @@ namespace triqs::mc_tools {
     mc_generic(const std::string &rng_name, std::int64_t rng_seed, int verbosity_lvl)
        : rng_(rng_name, rng_seed), moves_(rng_), report_(&std::cout, verbosity_lvl) {}
 
+    /// Set the verbosity level of the report stream.
+    void set_verbosity(int v) { report_ = utility::report_stream(&std::cout, v); }
+
+    /// Get the current sign of the MC configuration.
+    [[nodiscard]] MCSignType get_sign() const { return sign_; }
+
     /**
      * @brief Register a new MC move.
      *
