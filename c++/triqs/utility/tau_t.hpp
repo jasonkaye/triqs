@@ -81,11 +81,15 @@ namespace triqs::utility {
     /// Uniform random point in $[0, \beta)$.
     template <typename RNG> static tau_t random(RNG &rng) { return tau_t{rng(n_max)}; }
 
-    /// Uniform random point in $]0, \tau[$.
-    template <typename RNG> static tau_t random(RNG &rng, tau_t tau) { return tau_t{rng(tau.n - 1) + 1}; }
+    /// Uniform random point in $]0, \tau[$. Requires $\tau \geq 2\epsilon$.
+    template <typename RNG> static tau_t random(RNG &rng, tau_t tau) {
+      EXPECTS(tau.n >= 2);
+      return tau_t{rng(tau.n - 1) + 1};
+    }
 
-    /// Uniform random point in $]\tau_1, \tau_2[$.
+    /// Uniform random point in $]\tau_1, \tau_2[$. Requires $\tau_2 \geq \tau_1 + 2\epsilon$.
     template <typename RNG> static tau_t random(RNG &rng, tau_t tau1, tau_t tau2) {
+      EXPECTS(tau1.n + 2 <= tau2.n);
       auto n1 = tau1.n + 1;
       return tau_t{rng(tau2.n - n1) + n1};
     }
