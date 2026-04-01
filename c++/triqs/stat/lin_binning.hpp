@@ -363,8 +363,8 @@ namespace triqs::stat {
 
       // should all bins have the same capacity?
       if (same_capacity) {
-        // get maximum bin capacity
-        auto bc_max = mpi::all_reduce(bin_capacity_, c, MPI_MAX);
+        // get maximum bin capacity (exclude sentinel value -1 used for max_n_bins == 1)
+        auto bc_max = mpi::all_reduce(std::max(bin_capacity_, 0L), c, MPI_MAX);
 
         // if current bin capacity is not the maximum, compress bins to the maximum capacity if possible
         if (bin_capacity_ != bc_max) {

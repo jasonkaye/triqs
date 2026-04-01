@@ -97,4 +97,21 @@ TEST(TRIQSStat, LinBinningDoubleScalarMPISameCapacity) {
   for (int i = 0; i < bins.size(); ++i) check_array_or_scalar(bins[i], all_bins[i]);
 }
 
+// Test MPI gather when all ranks have max_n_bins == 1 (sentinel bin_capacity == -1).
+TEST(TRIQSStat, LinBinningMPIMaxNBinsOne) {
+  using namespace triqs::stat;
+  mpi::communicator comm;
+  lin_binning acc{0.0, 1, 1};
+  EXPECT_EQ(acc.bin_capacity(), -1);
+
+  // accumulate some samples
+  for (int i = 0; i < 10; ++i) acc << 1.0 * i;
+
+  // mpi_all_gather must not crash with sentinel bin_capacity
+  auto bins = acc.mpi_all_gather(comm, true);
+  // with max_n_bins == 1, last_bin_count never equals bin_capacity (-1),
+  // so full_bins() returns empty and gather should return empty
+  EXPECT_EQ(bins.size(), 0);
+}
+
 MAKE_MAIN;

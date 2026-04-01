@@ -67,4 +67,25 @@ TEST(TRIQSStat, LogBinningComplexDoubleScalarMPI) { test_mpi(std::complex<double
 TEST(TRIQSStat, LogBinningDoubleArrayMPI) { test_mpi(nda::array<double, 1>(7)); }
 TEST(TRIQSStat, LogBinningComplexDouble2DArrayMPI) { test_mpi(nda::array<std::complex<double>, 2>(3, 4)); }
 
+// Test MPI reduction when all ranks have max_n_bins == 0 (logging off).
+TEST(TRIQSStat, LogBinningMPIMaxNBinsZero) {
+  using namespace triqs::stat;
+  mpi::communicator comm;
+  log_binning acc{0.0, 0};
+
+  // accumulate some samples (only count is tracked)
+  for (int i = 0; i < 10; ++i) acc << 1.0 * i;
+  EXPECT_EQ(acc.n_bins(), 0);
+
+  // mpi_all_reduce must not crash on empty bins
+  auto [mk, qk, ns] = acc.mpi_all_reduce(comm);
+  EXPECT_EQ(mk.size(), 0);
+  EXPECT_EQ(qk.size(), 0);
+  EXPECT_EQ(ns.size(), 0);
+
+  // mean_errors_and_taus must return empty results
+  auto [m, errs, taus, effs] = acc.mean_errors_and_taus(comm);
+  EXPECT_EQ(errs.size(), 0);
+}
+
 MAKE_MAIN;

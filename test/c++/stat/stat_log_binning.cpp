@@ -241,6 +241,15 @@ TEST(TRIQSStat, LogBinningComplexDoubleScalarMaxNBinsFinite) { test_finite_bins(
 TEST(TRIQSStat, LogBinningDoubleArrayMaxNBinsFinite) { test_finite_bins(nda::array<double, 1>(7)); }
 TEST(TRIQSStat, LogBinningComplexDouble2DArrayMaxNBinsFinite) { test_finite_bins(nda::array<std::complex<double>, 2>(3, 4)); }
 
+// min_samples < 2 must throw
+TEST(TRIQSStat, LogBinningMinSamplesThrows) {
+  using namespace triqs::stat;
+  log_binning acc{0.0, -1};
+  for (int i = 0; i < 10; ++i) acc << 1.0 * i;
+  EXPECT_THROW((void)acc.mean_errors_and_taus(1), triqs::runtime_error);
+  EXPECT_THROW((void)acc.mean_errors_and_taus(0), triqs::runtime_error);
+}
+
 // HDF5
 TEST(TRIQSStat, LogBinningHDF5) {
   using namespace triqs::stat;

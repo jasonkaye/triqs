@@ -27,6 +27,8 @@
 #include "./concepts.hpp"
 #include "./utils.hpp"
 
+#include <triqs/utility/exceptions.hpp>
+
 #include <h5/h5.hpp>
 #include <mpi/mpi.hpp>
 #include <nda/h5.hpp>
@@ -310,6 +312,7 @@ namespace triqs::stat {
 
       // make sure all ranks have the same number of bins
       auto const nbins = mpi::all_reduce(n_bins(), c, MPI_MAX);
+      if (nbins == 0) return std::make_tuple(std::move(mean_red), std::move(var_red), std::move(nsamples_red));
       mean_red.resize(nbins, zeroed_sample(mean_bins_[0]));
       var_red.resize(nbins, zeroed_sample(var_bins_[0]));
       nsamples_red.resize(nbins, 0);
@@ -378,6 +381,8 @@ namespace triqs::stat {
                                                       std::vector<long> const &nsamples, int min_samples) const {
       // early return for empty vectors
       if (mk.empty()) return std::make_tuple(value_t{}, std::vector<real_t>{}, std::vector<real_t>{}, std::vector<long>{});
+
+      TRIQS_ASSERT2(min_samples >= 2, "min_samples must be >= 2 to avoid division by zero");
 
       // only consider bins with at least min_samples effective samples
       auto const size = std::distance(nsamples.begin(), std::ranges::upper_bound(nsamples, min_samples, std::greater{}));
